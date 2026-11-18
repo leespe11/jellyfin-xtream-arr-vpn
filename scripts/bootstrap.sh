@@ -249,6 +249,16 @@ if $JELLYFIN_OK; then
   done < <(jq -c '.[]' $T/jellyfin/libraries.json)
   [ $created -eq 0 ] || jf POST /Library/Refresh >/dev/null || true
 
+  # Library scan every day at 4:30, after the Xtream Library sync (3:00) and the nightly job
+  # (4:00), instead of Jellyfin's every 12 hours. A schedule changed by hand is left alone.
+  task=$(jf GET /ScheduledTasks | jq -c '.[] | select(.Key == "RefreshLibrary")')
+  if [ "$(jq -c '[.Triggers[] | {Type, IntervalTicks}]' <<<"$task" 2>/dev/null)" \
+       = '[{"Type":"IntervalTrigger","IntervalTicks":432000000000}]' ]; then
+    jf POST "/ScheduledTasks/$(jq -r .Id <<<"$task")/Triggers" \
+         '[{"Type":"DailyTrigger","TimeOfDayTicks":162000000000}]' >/dev/null \
+      && say "library scan every day at 4:30" || problem "could not set Jellyfin's library scan time"
+  fi
+
   # Keys for the apps that tell Jellyfin about new files (Seerr makes its own).
   JELLYFIN_KEY_SONARR=$(jf_key Sonarr)
   JELLYFIN_KEY_RADARR=$(jf_key Radarr)

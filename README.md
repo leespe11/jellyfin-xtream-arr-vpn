@@ -17,7 +17,7 @@ machine and link every app together; cron jobs keep it healthy and up to date.
 [Provider movies and series](#movies-and-series-from-the-provider) ·
 [Artwork size](#jellyfin-artwork-size) ·
 [Remote access](#remote-access-tailscale) ·
-[Fire TV](#fire-tv-wholphin) ·
+[Clients](#recommended-clients) ·
 [Several machines](#several-machines-sharing-a-windscribe-account) ·
 [Troubleshooting](#troubleshooting) ·
 [Credits](#credits)
@@ -207,10 +207,16 @@ never changed.
    Refresh Guide Data**, so the channels and their guide show up.
 5. **Jellyfin:** **Dashboard → Plugins → Xtream Library**, pick the movie and series
    categories, then **Run Sync Now**. Everything else in the plugin is already set. Wait
-   for it to finish.
+   for it to finish. After this it syncs every day at 3:00.
 6. **Jellyfin:** **Dashboard → Libraries → Scan All Libraries**, and wait for it to finish.
+   After this it scans every day at 4:30.
 7. **Seerr** (`http://<machine>:5055`, Jellyfin admin): **Settings → Jellyfin → Start
-   Scan**, so Seerr knows what you already have. After this it scans every day at 6:00.
+   Scan**, so Seerr knows what you already have. After this it does a full scan every day
+   at 6:00, and checks for newly added titles every minute.
+
+All times are the machine's local time (`TZ` in `.env`). They're spaced so each step has
+the previous one's results: the provider's sync, then the nightly job at 4:00 (which may
+reboot), then Jellyfin's scan, then Seerr's.
 8. **Tailscale**, if you want remote access: see [Remote access](#remote-access-tailscale).
 
 ### 6. Test the nightly job
@@ -393,8 +399,17 @@ freed. To redo every image (after changing the limits): `scripts/shrink-images.s
 ## Remote access (Tailscale)
 
 1. Add each remote device's Tailscale IP as a `/32` to `LAN_SUBNETS` in `.env`, so
-   Jellyfin can reply through the VPN, then `docker compose up -d`. Don't add the whole
-   `100.64.0.0/10`: your WireGuard address may be in it.
+   Jellyfin can reply to it, then `docker compose up -d`. For example
+   `LAN_SUBNETS=172.16.0.0/12,192.168.0.0/16,100.101.102.103/32`.
+
+   **Don't add Tailscale's whole range, `100.64.0.0/10`.** Jellyfin shares gluetun's
+   network, and gluetun sends traffic for the `LAN_SUBNETS` around the VPN, out your
+   normal connection. Tailscale isn't the only one using that range: some VPN providers
+   hand out WireGuard addresses in it too (Windscribe's are `100.x.x.x`), and their DNS
+   and gateway live there as well. List the whole range and traffic meant for the tunnel
+   goes around it instead. The VPN stops working: no internet in the containers, gluetun
+   unhealthy, or traffic leaving outside the VPN. One `/32` per device only matches that
+   device.
 2. Log in once, opening the link within a minute:
    ```bash
    docker logs -f tailscale 2>&1 | grep --line-buffered login.tailscale.com
@@ -406,16 +421,23 @@ freed. To redo every image (after changing the limits): `scripts/shrink-images.s
 
 ---
 
-## Fire TV (Wholphin)
+## Recommended clients
 
-Wholphin is a Fire TV app with Seerr built in. Install the GitHub build (the Appstore one
-has no Seerr):
-1. Turn on **Developer options → Install unknown apps**.
-2. Install **Downloader** and enter code `8668671`.
-3. In Wholphin's settings, add Seerr as `http://<server's LAN IP>:5055`, signing in with
-   your Jellyfin account.
+- **Computer:** the web interface, `http://<server>:8096` (or `http://<machine-name>:8096`
+  through Tailscale). Jellyfin Enhanced adds Seerr requests right inside it.
+- **Phone or tablet:** the official **Jellyfin** app from Google Play or the App Store.
+  Away from home, turn on Tailscale on the phone first (see
+  [Remote access](#remote-access-tailscale)).
+- **Fire TV:** **Wholphin**, with Seerr requests built in. Install it from Wholphin's
+  GitHub releases, **not** from the Amazon Appstore: the Appstore version doesn't have the
+  Seerr integration (as of this writing).
+  1. On the Fire TV, turn on **Settings → My Fire TV → Developer options → Install
+     unknown apps** (for Downloader).
+  2. Install **Downloader** from the Appstore, open it and enter the code `8668671`.
+  3. In Wholphin's settings, add Seerr as `http://<server's LAN IP>:5055`, signing in
+     with your Jellyfin account.
 
-The Wholphin plugin it needs in Jellyfin is already installed.
+  The Wholphin plugin it needs in Jellyfin is already installed.
 
 ---
 
