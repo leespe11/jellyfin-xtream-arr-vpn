@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Nightly job, run by cron on every machine. In order:
-#   1. port-sync.sh (renew/follow the Windscribe port)
+#   1. port-sync.sh (Windscribe port renewal, when PORT_REFRESH=yes)
 #   2. host setup that should always hold: timezone + NTP, docker log limits,
 #      journald cap, no sleep/suspend, log rotation
 #   3. OS updates (apt full-upgrade)
@@ -25,14 +25,16 @@ main() {
   change()  { changes+="• $*"$'\n'; echo "$*"; }
   step()    { echo; echo "--- $* ---"; }
   export DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a
-  echo; echo "=========== $(date) nightly ($(env_val ROLE)) ==========="
+  echo; echo "=========== $(date) nightly ==========="
 
   # ------------------------------------------------------------------
   step "Port sync"
   local port_before; port_before=$(env_val TORRENT_PORT)
-  scripts/port-sync.sh || problem "port-sync.sh failed (see /var/log/nightly.log)"
-  [ "$(env_val TORRENT_PORT)" = "$port_before" ] \
-    || change "torrent port $port_before → $(env_val TORRENT_PORT)"
+  if [ "$(env_val PORT_REFRESH)" = yes ]; then
+    scripts/port-sync.sh || problem "port-sync.sh failed (see /var/log/nightly.log)"
+    [ "$(env_val TORRENT_PORT)" = "$port_before" ] \
+      || change "torrent port $port_before → $(env_val TORRENT_PORT)"
+  fi
 
   # ------------------------------------------------------------------
   step "Host setup"
@@ -159,7 +161,7 @@ main() {
 $problems
 }${changes:+**Changes**
 $changes
-}**Torrent port** $(env_val TORRENT_PORT)
+}**Torrent port** $(p=$(env_val TORRENT_PORT); echo "${p:-none}")
 
 **Drives**
 ${drives:-none found

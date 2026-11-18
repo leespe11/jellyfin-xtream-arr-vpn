@@ -2,15 +2,15 @@
 # Keeps the Windscribe forwarded port in step across machines sharing one account.
 #   ROLE=primary    renews the port every ~6 days and applies it here
 #   ROLE=secondary  reads the account's current port from Windscribe (no renewal) and applies it
-# Only runs with VPN_SERVICE_PROVIDER=windscribe and PORT_REFRESH=yes in .env (both the
-# default); otherwise TORRENT_PORT stays as set.
+# Only runs with VPN_SERVICE_PROVIDER=windscribe and PORT_REFRESH=yes in .env; otherwise
+# TORRENT_PORT stays as set.
 # Usage: port-sync.sh [--force]    (--force makes the primary renew now)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/lib.sh
 
-provider=$(env_val VPN_SERVICE_PROVIDER); provider=${provider:-windscribe}
-refresh=$(env_val PORT_REFRESH); refresh=${refresh:-yes}
+provider=$(env_val VPN_SERVICE_PROVIDER)
+refresh=$(env_val PORT_REFRESH)
 if [ "$provider" != windscribe ] || [ "$refresh" != yes ]; then
   echo "$(date) port refresh is off (VPN_SERVICE_PROVIDER=$provider, PORT_REFRESH=$refresh); port stays $(env_val TORRENT_PORT)"
   exit 0
