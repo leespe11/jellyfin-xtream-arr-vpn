@@ -1,0 +1,455 @@
+{
+  "rootFolders": [
+    "{{SERIES_PATH}}"
+  ],
+  "customFormats": [
+    {
+      "name": "x265",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
+        {
+          "name": "x265",
+          "implementation": "ReleaseTitleSpecification",
+          "implementationName": "Release Title",
+          "infoLink": "https://wiki.servarr.com/sonarr/settings#custom-formats-2",
+          "negate": false,
+          "required": false,
+          "fields": [
+            {
+              "order": 0,
+              "name": "value",
+              "label": "Regular Expression",
+              "helpText": "Custom Format RegEx is Case Insensitive",
+              "value": "(?<![a-z0-9])(hevc|[xh][ ._-]?265)(?![0-9])",
+              "type": "textbox",
+              "advanced": false,
+              "privacy": "normal",
+              "isFloat": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qualityProfile": {
+    "upgradeAllowed": false,
+    "minFormatScore": 0,
+    "cutoffFormatScore": 50,
+    "minUpgradeFormatScore": 1
+  },
+  "downloadClient": {
+    "enable": true,
+    "protocol": "torrent",
+    "priority": 1,
+    "removeCompletedDownloads": false,
+    "removeFailedDownloads": true,
+    "name": "qBittorrent",
+    "fields": [
+      {
+        "order": 0,
+        "name": "host",
+        "label": "Host",
+        "value": "gluetun",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 1,
+        "name": "port",
+        "label": "Port",
+        "value": 8080,
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 2,
+        "name": "useSsl",
+        "label": "Use SSL",
+        "helpText": "Use a secure connection. See Options -> Web UI -> 'Use HTTPS instead of HTTP' in qBittorrent.",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 3,
+        "name": "urlBase",
+        "label": "URL Base",
+        "helpText": "Adds a prefix to the qBittorrent url, such as http://[host]:[port]/[urlBase]/api",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 4,
+        "name": "apiKey",
+        "label": "API Key",
+        "value": "",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "apiKey",
+        "isFloat": false
+      },
+      {
+        "order": 5,
+        "name": "username",
+        "label": "Username",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "userName",
+        "isFloat": false,
+        "value": "{{QBIT_USERNAME}}"
+      },
+      {
+        "order": 6,
+        "name": "password",
+        "label": "Password",
+        "type": "password",
+        "advanced": false,
+        "privacy": "password",
+        "isFloat": false,
+        "value": "{{QBIT_PASSWORD}}"
+      },
+      {
+        "order": 7,
+        "name": "tvCategory",
+        "label": "Category",
+        "helpText": "Adding a category specific to Sonarr avoids conflicts with unrelated non-Sonarr downloads. Using a category is optional, but strongly recommended.",
+        "value": "tv-sonarr",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 8,
+        "name": "tvImportedCategory",
+        "label": "Post-Import Category",
+        "helpText": "Category for Sonarr to set after it has imported the download. Sonarr will not remove torrents in that category even if seeding finished. Leave blank to keep same category.",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 9,
+        "name": "recentTvPriority",
+        "label": "Recent Priority",
+        "helpText": "Priority to use when grabbing episodes that aired within the last 14 days",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Last",
+            "order": 0
+          },
+          {
+            "value": 1,
+            "name": "First",
+            "order": 1
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 10,
+        "name": "olderTvPriority",
+        "label": "Older Priority",
+        "helpText": "Priority to use when grabbing episodes that aired over 14 days ago",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Last",
+            "order": 0
+          },
+          {
+            "value": 1,
+            "name": "First",
+            "order": 1
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 11,
+        "name": "initialState",
+        "label": "Initial State",
+        "helpText": "Initial state for torrents added to qBittorrent. Note that Forced Torrents do not abide by seed restrictions",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Started",
+            "order": 7,
+            "hint": "(0)"
+          },
+          {
+            "value": 1,
+            "name": "Force Started",
+            "order": 10,
+            "hint": "(1)"
+          },
+          {
+            "value": 2,
+            "name": "Stopped",
+            "order": 13,
+            "hint": "(2)"
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 12,
+        "name": "sequentialOrder",
+        "label": "Sequential Order",
+        "helpText": "Download in sequential order (qBittorrent 4.1.0+)",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 13,
+        "name": "firstAndLast",
+        "label": "First and Last First",
+        "helpText": "Download first and last pieces first (qBittorrent 4.1.0+)",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 14,
+        "name": "contentLayout",
+        "label": "Content Layout",
+        "helpText": "Whether to use qBittorrent's configured content layout, the original layout from the torrent or always create a subfolder (qBittorrent 4.3.2+)",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Default",
+            "order": 0
+          },
+          {
+            "value": 1,
+            "name": "Original",
+            "order": 1
+          },
+          {
+            "value": 2,
+            "name": "Subfolder",
+            "order": 2
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      }
+    ],
+    "implementationName": "qBittorrent",
+    "implementation": "QBittorrent",
+    "configContract": "QBittorrentSettings",
+    "infoLink": "https://wiki.servarr.com/sonarr/supported#qbittorrent",
+    "tags": []
+  },
+  "notification": {
+    "onGrab": true,
+    "onDownload": true,
+    "onUpgrade": true,
+    "onImportComplete": true,
+    "onRename": true,
+    "onSeriesAdd": true,
+    "onSeriesDelete": true,
+    "onEpisodeFileDelete": true,
+    "onEpisodeFileDeleteForUpgrade": true,
+    "onHealthIssue": false,
+    "includeHealthWarnings": false,
+    "onHealthRestored": false,
+    "onApplicationUpdate": true,
+    "onManualInteractionRequired": false,
+    "supportsOnGrab": true,
+    "supportsOnDownload": true,
+    "supportsOnUpgrade": true,
+    "supportsOnImportComplete": true,
+    "supportsOnRename": true,
+    "supportsOnSeriesAdd": true,
+    "supportsOnSeriesDelete": true,
+    "supportsOnEpisodeFileDelete": true,
+    "supportsOnEpisodeFileDeleteForUpgrade": true,
+    "supportsOnHealthIssue": true,
+    "supportsOnHealthRestored": true,
+    "supportsOnApplicationUpdate": true,
+    "supportsOnManualInteractionRequired": false,
+    "name": "Emby / Jellyfin",
+    "fields": [
+      {
+        "order": 0,
+        "name": "host",
+        "label": "Host",
+        "value": "gluetun",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 1,
+        "name": "port",
+        "label": "Port",
+        "value": 8096,
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 2,
+        "name": "useSsl",
+        "label": "Use SSL",
+        "helpText": "Connect to Emby/Jellyfin over HTTPS instead of HTTP",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 3,
+        "name": "urlBase",
+        "label": "URL Base",
+        "helpText": "Adds a prefix to the Emby/Jellyfin url, such as http://[host]:[port]/[urlBase]/mediabrowser",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 4,
+        "name": "apiKey",
+        "label": "API Key",
+        "value": "{{JELLYFIN_KEY_SONARR}}",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "apiKey",
+        "isFloat": false
+      },
+      {
+        "order": 5,
+        "name": "notify",
+        "label": "Send Notifications",
+        "helpText": "Have Emby send notifications to configured providers. Not supported on Jellyfin.",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 6,
+        "name": "updateLibrary",
+        "label": "Update Library",
+        "helpText": "Update Library on Import, Rename, or Delete",
+        "value": true,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 7,
+        "name": "mapFrom",
+        "label": "Map Paths From",
+        "helpText": "Sonarr path, used to modify series paths when Emby/Jellyfin sees library path location differently from Sonarr (Requires 'Update Library')",
+        "value": "{{SERIES_PATH}}/",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 8,
+        "name": "mapTo",
+        "label": "Map Paths To",
+        "helpText": "Emby/Jellyfin path, used to modify series paths when Emby/Jellyfin sees library path location differently from Sonarr (Requires 'Update Library')",
+        "value": "/media/tvshows/",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      }
+    ],
+    "implementationName": "Emby / Jellyfin",
+    "implementation": "MediaBrowser",
+    "configContract": "MediaBrowserSettings",
+    "infoLink": "https://wiki.servarr.com/sonarr/supported#mediabrowser",
+    "tags": []
+  },
+  "config": {
+    "naming": {
+      "renameEpisodes": true,
+      "replaceIllegalCharacters": true,
+      "colonReplacementFormat": 4,
+      "customColonReplacementFormat": "",
+      "multiEpisodeStyle": 5,
+      "standardEpisodeFormat": "{Series Title} - S{season:00}E{episode:00} - {Episode Title}",
+      "dailyEpisodeFormat": "{Series Title} - {Air-Date} - {Episode Title}",
+      "animeEpisodeFormat": "{Series Title} - S{season:00}E{episode:00} - {Episode Title}",
+      "seriesFolderFormat": "{Series Title}",
+      "seasonFolderFormat": "Season {season}",
+      "specialsFolderFormat": "Specials"
+    },
+    "mediamanagement": {
+      "autoUnmonitorPreviouslyDownloadedEpisodes": false,
+      "recycleBin": "",
+      "recycleBinCleanupDays": 7,
+      "downloadPropersAndRepacks": "preferAndUpgrade",
+      "createEmptySeriesFolders": false,
+      "deleteEmptyFolders": false,
+      "fileDate": "none",
+      "rescanAfterRefresh": "always",
+      "setPermissionsLinux": false,
+      "chmodFolder": "755",
+      "chownGroup": "",
+      "episodeTitleRequired": "always",
+      "skipFreeSpaceCheckWhenImporting": false,
+      "minimumFreeSpaceWhenImporting": 100,
+      "copyUsingHardlinks": true,
+      "useScriptImport": false,
+      "scriptImportPath": "",
+      "importExtraFiles": false,
+      "extraFileExtensions": "srt",
+      "enableMediaInfo": true
+    },
+    "downloadclient": {
+      "downloadClientWorkingFolders": "_UNPACK_|_FAILED_",
+      "enableCompletedDownloadHandling": true,
+      "autoRedownloadFailed": true,
+      "autoRedownloadFailedFromInteractiveSearch": true
+    },
+    "indexer": {
+      "minimumAge": 0,
+      "retention": 0,
+      "maximumSize": 0,
+      "rssSyncInterval": 15
+    }
+  }
+}

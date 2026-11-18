@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Intro Skipper",
+    "guid": "c83d86bb-a1e0-4c35-a113-e2101cf4ee6b"
+  },
+  {
+    "name": "JavaScript Injector",
+    "guid": "f5a34f7b-2e8a-4e6a-a722-3a216a81b374"
+  },
+  {
+    "name": "Jellyfin Enhanced",
+    "guid": "f69e946a-4b3c-4e9a-8f0a-8d7c1b2c4d9b"
+  },
+  {
+    "name": "Wholphin",
+    "guid": "00e68c90-8840-48d0-ad65-0a5d58249652"
+  },
+  {
+    "name": "Xtream Library",
+    "guid": "63ba5fcd-c8ce-421a-83e8-ba0b11030d53"
+  }
+]

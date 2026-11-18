@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <CustomJavaScripts>
+    <CustomJavaScriptEntry>
+      <Name>liveTV-remove-channel-numbers</Name>
+      <Script>(function () {
+  console.log('[strip-channel-numbers] loaded');
+  const numbers = new Map();   // channel id -&gt; its channel number ('' if none or unknown)
+  const pending = new Set();
+  let fetching = false;
+  const escape = s =&gt; s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&amp;');
+
+  // Removes this channel's own number from the start of its title, and nothing else.
+  const stripCard = (card, num) =&gt; {
+    const line = card.querySelector('.cardText-first') || card.querySelector('.cardText');
+    if (!line || line.dataset.numStripped === line.textContent) return;
+    if (num) {
+      const re = new RegExp('^\\s*' + escape(num) + '\\s+');
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      let node;
+      while ((node = walker.nextNode())) {
+        if (node.nodeValue.trim()) { node.nodeValue = node.nodeValue.replace(re, ''); break; }
+      }
+    }
+    line.dataset.numStripped = line.textContent;   // checked again if Jellyfin reuses the card
+  };
+
+  // Looks up the channel numbers of new cards, 100 at a time.
+  const fetchNumbers = async () =&gt; {
+    if (fetching || !pending.size || !window.ApiClient) return;
+    fetching = true;
+    const ids = [...pending].slice(0, 100);
+    ids.forEach(id =&gt; pending.delete(id));
+    try {
+      const res = await ApiClient.getItems(ApiClient.getCurrentUserId(), { Ids: ids.join(',') });
+      ids.forEach(id =&gt; numbers.set(id, ''));
+      (res.Items || []).forEach(i =&gt; numbers.set(i.Id, i.ChannelNumber || ''));
+    } catch (e) {
+      console.warn('[strip-channel-numbers] lookup failed', e);
+      ids.forEach(id =&gt; numbers.set(id, ''));       // leave those titles untouched
+    }
+    fetching = false;
+    strip();
+  };
+
+  const strip = () =&gt; {
+    document.querySelectorAll('[data-type="TvChannel"][data-id]').forEach(card =&gt; {
+      const id = card.dataset.id;
+      if (numbers.has(id)) stripCard(card, numbers.get(id));
+      else pending.add(id);
+    });
+    fetchNumbers();
+  };
+
+  let queued = false;
+  new MutationObserver(() =&gt; {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() =&gt; { queued = false; strip(); });
+  }).observe(document.body, { childList: true, subtree: true });
+  strip();
+})();</Script>
+      <Src />
+      <Module>false</Module>
+      <Enabled>true</Enabled>
+      <RequiresAuthentication>false</RequiresAuthentication>
+    </CustomJavaScriptEntry>
+  </CustomJavaScripts>
+  <PluginJavaScripts />
+  <DisableScriptInjectionMiddleware>false</DisableScriptInjectionMiddleware>
+  <AllowExternalScriptUrls>true</AllowExternalScriptUrls>
+</PluginConfiguration>

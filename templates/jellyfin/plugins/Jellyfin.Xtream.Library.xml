@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PluginConfiguration xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <Providers>
+    <ProviderConfig>
+      <Name>Dispatcharr</Name>
+      <IsEnabled>true</IsEnabled>
+      <BaseUrl>http://localhost:9191</BaseUrl>
+      <Username>{{DISPATCHARR_XC_USER}}</Username>
+      <Password>{{DISPATCHARR_XC_PASSWORD}}</Password>
+      <UserAgent />
+      <LibraryPath>/config/xtream-library</LibraryPath>
+      <SyncMovies>true</SyncMovies>
+      <SyncSeries>true</SyncSeries>
+      <MovieCategoriesMode>Include</MovieCategoriesMode>
+      <SeriesCategoriesMode>Include</SeriesCategoriesMode>
+      <SelectedVodCategoryIds />
+      <SelectedSeriesCategoryIds />
+      <ExcludedVodStreamIds />
+      <ExcludedSeriesIds />
+      <SmartSkipExisting>true</SmartSkipExisting>
+      <MovieFolderMode>Single</MovieFolderMode>
+      <MovieFolderMappings />
+      <SeriesFolderMode>Single</SeriesFolderMode>
+      <SeriesFolderMappings />
+      <TmdbFolderIdOverrides />
+      <TvdbFolderIdOverrides />
+      <CustomTitleRemoveTerms>4K-
+NF -
+TOP -
+AMZ -
+D+ -
+UNV -
+PRMT -
+VP -
+A+ -
+DWA -
+MRVL -
+DSC+ -
+SKY -
+PCOK -
+P+ -
+MAX -
+SHWT -
+OSN+ -
+NICK -
+AR -
+NF -</CustomTitleRemoveTerms>
+      <RegexRemovalPatterns />
+      <DownloadArtworkForUnmatched>true</DownloadArtworkForUnmatched>
+      <EnableProactiveMediaInfo>false</EnableProactiveMediaInfo>
+      <FallbackToYearlessLookup>false</FallbackToYearlessLookup>
+      <GroupMoviesByTmdbId>true</GroupMoviesByTmdbId>
+      <EnableDispatcharrMode>true</EnableDispatcharrMode>
+      <DispatcharrBaseUrl>http://localhost:9191</DispatcharrBaseUrl>
+      <DispatcharrApiUser>{{ADMIN_USER}}</DispatcharrApiUser>
+      <DispatcharrApiPass>{{ADMIN_PASSWORD}}</DispatcharrApiPass>
+      <EnableIncrementalSync>true</EnableIncrementalSync>
+      <FullSyncIntervalDays>7</FullSyncIntervalDays>
+      <CleanupOrphans>true</CleanupOrphans>
+      <OrphanSafetyThreshold>0.2</OrphanSafetyThreshold>
+      <SyncParallelism>10</SyncParallelism>
+      <CategoryBatchSize>100</CategoryBatchSize>
+      <RequestDelayMs>50</RequestDelayMs>
+      <MaxRetries>3</MaxRetries>
+      <RetryDelayMs>1000</RetryDelayMs>
+      <TimeoutSeconds>300</TimeoutSeconds>
+    </ProviderConfig>
+  </Providers>
+  <SyncIntervalMinutes>60</SyncIntervalMinutes>
+  <TriggerLibraryScan>false</TriggerLibraryScan>
+  <SyncScheduleType>Daily</SyncScheduleType>
+  <SyncDailyHour>3</SyncDailyHour>
+  <SyncDailyMinute>0</SyncDailyMinute>
+  <UseBetaChannel>false</UseBetaChannel>
+  <EnableMetadataLookup>true</EnableMetadataLookup>
+  <MetadataCacheAgeDays>30</MetadataCacheAgeDays>
+  <MetadataParallelism>3</MetadataParallelism>
+  <EnableLiveTv>false</EnableLiveTv>
+  <EnableNativeTuner>false</EnableNativeTuner>
+  <LiveChannelMode>Custom</LiveChannelMode>
+  <SelectedLiveCategoryIds />
+  <ExcludedLiveStreamIds />
+  <EnableEpg>true</EnableEpg>
+  <M3UCacheMinutes>15</M3UCacheMinutes>
+  <EpgCacheMinutes>30</EpgCacheMinutes>
+  <EpgDaysToFetch>2</EpgDaysToFetch>
+  <LiveTvOutputFormat>m3u8</LiveTvOutputFormat>
+  <LiveTvAnalyzeDurationMs>0</LiveTvAnalyzeDurationMs>
+  <LiveTvCopyAudio>false</LiveTvCopyAudio>
+  <LiveTvDirectPlayDispatcharr>false</LiveTvDirectPlayDispatcharr>
+  <IncludeAdultChannels>false</IncludeAdultChannels>
+  <EpgParallelism>5</EpgParallelism>
+  <EnableChannelNameCleaning>true</EnableChannelNameCleaning>
+  <LiveTvNumberByCategory>false</LiveTvNumberByCategory>
+  <LiveTvCategoryAsTag>false</LiveTvCategoryAsTag>
+  <ChannelRemoveTerms>CA EN:
+24/7:
+24/7
+AT&amp;T:
+RX:
+ᴿᴬᵂ</ChannelRemoveTerms>
+  <ChannelOverrides />
+  <LiveTvEndpointAllowedIps />
+  <PublishLiveTvPlaylists>true</PublishLiveTvPlaylists>
+  <LiveTvPlaylistSwitchInitialized>true</LiveTvPlaylistSwitchInitialized>
+  <EnableCatchup>false</EnableCatchup>
+  <CatchupDays>7</CatchupDays>
+  <EmitCredentialedCatchupSource>false</EmitCredentialedCatchupSource>
+  <ShowCatchupInJellyfin>false</ShowCatchupInJellyfin>
+  <CatchupTimeShiftMinutes>0</CatchupTimeShiftMinutes>
+  <CatchupBlockMinutes>30</CatchupBlockMinutes>
+  <BaseUrl />
+  <Username />
+  <Password />
+  <UserAgent />
+  <LibraryPath />
+  <SyncMovies>true</SyncMovies>
+  <SyncSeries>true</SyncSeries>
+  <CleanupOrphans>true</CleanupOrphans>
+  <OrphanSafetyThreshold>0.2</OrphanSafetyThreshold>
+  <SelectedVodCategoryIds />
+  <SelectedSeriesCategoryIds />
+  <SyncParallelism>10</SyncParallelism>
+  <SmartSkipExisting>true</SmartSkipExisting>
+  <TmdbFolderIdOverrides />
+  <TvdbFolderIdOverrides />
+  <CustomTitleRemoveTerms />
+  <RegexRemovalPatterns />
+  <DownloadArtworkForUnmatched>true</DownloadArtworkForUnmatched>
+  <EnableProactiveMediaInfo>false</EnableProactiveMediaInfo>
+  <CategoryBatchSize>25</CategoryBatchSize>
+  <MovieFolderMode>Single</MovieFolderMode>
+  <MovieFolderMappings />
+  <SeriesFolderMode>Single</SeriesFolderMode>
+  <SeriesFolderMappings />
+  <FallbackToYearlessLookup>false</FallbackToYearlessLookup>
+  <EnableDispatcharrMode>false</EnableDispatcharrMode>
+  <GroupMoviesByTmdbId>false</GroupMoviesByTmdbId>
+  <DispatcharrBaseUrl />
+  <DispatcharrApiUser />
+  <DispatcharrApiPass />
+  <EnableIncrementalSync>true</EnableIncrementalSync>
+  <FullSyncIntervalDays>7</FullSyncIntervalDays>
+  <RequestDelayMs>50</RequestDelayMs>
+  <MaxRetries>3</MaxRetries>
+  <RetryDelayMs>1000</RetryDelayMs>
+  <HasDuplicateLibraryPaths>false</HasDuplicateLibraryPaths>
+</PluginConfiguration>
