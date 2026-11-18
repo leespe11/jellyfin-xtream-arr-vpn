@@ -6,13 +6,13 @@
 # that saves space; it keeps its name, format (JPEG stays JPEG, logos stay transparent
 # PNG), owner and date, so Jellyfin sees no change. Trickplay images are left alone.
 #
-# Usage (as root, from the stack folder):
-#   scripts/shrink-images.sh            first run: every image (hours; run it in screen or
-#                                       with nohup), then only images added since the last run
-#   scripts/shrink-images.sh --all      every image again, e.g. after changing the limits
-#   scripts/shrink-images.sh --nightly  what nightly.sh runs: only images added since the
-#                                       last run; fails if there was never a first run
-# The last line printed is the summary nightly.sh reports. Needs ImageMagick.
+# Run by cron every day at 06:00 (installed by bootstrap.sh), at low priority:
+#   scripts/shrink-images.sh        the first run does every image (hours on a big library),
+#                                   later runs only the images added since the last one
+#   scripts/shrink-images.sh --all  every image again, e.g. after changing the limits
+# Only one runs at a time: a run that starts while one is going exits straight away.
+# Its summary goes to config/jellyfin/.shrink-images-result for the nightly report.
+# Needs ImageMagick.
 set -uo pipefail
 cd "$(dirname "$0")/.."
 
@@ -29,16 +29,20 @@ logo        800x400     -             150
 
 source scripts/lib.sh
 META=$(jellyfin_bulk_dir)/metadata      # config/jellyfin/metadata, or JELLYFIN_BULK_DIR's
-MARKER=jellyfin/.shrink-images-last-run
+MARKER=config/jellyfin/.shrink-images-last-run
+RESULT=config/jellyfin/.shrink-images-result
 JOBS=${JOBS:-4}
 
 MODE=new
 case "${1:-}" in
   --all) MODE=all ;;
-  --nightly) [ -f "$MARKER" ] || { echo "never run by hand yet: run scripts/shrink-images.sh once first"; exit 1; } ;;
   "") [ -f "$MARKER" ] || MODE=all ;;
-  *) echo "usage: $0 [--all|--nightly]"; exit 2 ;;
+  *) echo "usage: $0 [--all]"; exit 2 ;;
 esac
+mkdir -p config/jellyfin
+exec 9>config/jellyfin/.shrink-images.lock
+! command -v flock >/dev/null || flock -n 9 || { echo "$(date) already running, skipped"; exit 0; }
+renice -n 19 -p $$ >/dev/null 2>&1; ionice -c 3 -p $$ 2>/dev/null   # stay out of the way
 
 [ -d "$META/library" ] || { echo "no Jellyfin metadata on this machine, nothing to do"; exit 0; }
 if command -v magick >/dev/null; then IM=magick; ID="magick identify"          # ImageMagick 7
@@ -94,7 +98,7 @@ find "$META/library" "$META/People" -type f -not -name '*.shrinking' "${newer[@]
         -o -name 'thumb.*' -o -name 'landscape.*' -o -name 'logo.*' \) -print0 \
 | xargs -0 -r -n 50 -P "$JOBS" bash -c 'for f; do shrink_one "$f"; done' _ \
 | awk '{n++; b+=$1; a+=$2} END {f=b-a; if (f >= 1e9) s=sprintf("%.1f GB", f/1e9); else s=sprintf("%.0f MB", f/1e6)
-       printf "shrank %d images, freed %s\n", n, s}'
+       printf "shrank %d images, freed %s\n", n, s}' | tee "$RESULT"
 
 # Images Jellyfin writes while this runs are newer than $start, so the next run gets them.
 touch -d "@$start" "$MARKER"

@@ -268,7 +268,7 @@ working setup; `{{NAME}}` in a template is filled in from `.env`.
 
 ## Maintenance
 
-Four cron jobs, which `bootstrap.sh` installs in root's crontab:
+Five cron jobs, which `bootstrap.sh` installs in root's crontab:
 
 **`nightly.sh`**, at 04:00:
 1. `port-sync.sh` (Windscribe with `PORT_REFRESH=yes` only, see
@@ -278,11 +278,14 @@ Four cron jobs, which `bootstrap.sh` installs in root's crontab:
 3. OS updates (`apt full-upgrade`).
 4. Stack update: `git pull`, `docker compose up -d` (a container only changes when its
    tag in `docker-compose.yml` does), unused images removed.
-5. `shrink-images.sh` for the artwork Jellyfin added since the night before.
+5. The result of that morning's artwork shrinking (below).
 6. Health: SMART status and temperature of each drive, free space, container states;
    SSD TRIM on Sundays.
 7. Discord report: green when all is well, red with the problems.
 8. Reboot, only when the OS updates need it, and on Sundays.
+
+**`shrink-images.sh`**, at 06:00, after any reboot: shrinks Jellyfin's artwork (see
+[Jellyfin artwork size](#jellyfin-artwork-size)).
 
 **`after-boot.sh`**, at every boot: Docker starts containers without waiting for the
 VPN, so the ones sharing its network (qBittorrent, Jellyfin, Dispatcharr, livetv-proxy)
@@ -375,11 +378,10 @@ Jellyfin keeps every poster, backdrop, logo and actor photo at full size in `met
 1920x1080, actor photos 500x750...; limits at the top of the script), keeping names,
 formats and dates.
 
-Run it once by hand (it takes hours on a big library); after that the nightly job
-handles new artwork:
-```bash
-nohup scripts/shrink-images.sh > /var/log/shrink-images.log 2>&1 &
-```
+It runs by itself every day at 06:00, at low priority. The first run goes through every
+image, which takes hours on a big library; after that it only does what Jellyfin added
+since. The log is `/var/log/shrink-images.log`, and the nightly report shows how much it
+freed. To redo every image (after changing the limits): `scripts/shrink-images.sh --all`.
 
 ---
 
