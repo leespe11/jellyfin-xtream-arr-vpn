@@ -90,7 +90,7 @@
         "order": 4,
         "name": "apiKey",
         "label": "API Key",
-        "value": "",
+        "value": "{{QBIT_API_KEY}}",
         "type": "textbox",
         "advanced": false,
         "privacy": "apiKey",
@@ -104,7 +104,7 @@
         "advanced": false,
         "privacy": "userName",
         "isFloat": false,
-        "value": "{{QBIT_USERNAME}}"
+        "value": ""
       },
       {
         "order": 6,
@@ -114,7 +114,7 @@
         "advanced": false,
         "privacy": "password",
         "isFloat": false,
-        "value": "{{QBIT_PASSWORD}}"
+        "value": ""
       },
       {
         "order": 7,

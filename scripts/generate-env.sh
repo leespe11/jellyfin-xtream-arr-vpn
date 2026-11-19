@@ -105,6 +105,7 @@ existing_key() {
     BAZARR_API_KEY)
       [ -f config/bazarr/config/config.yaml ] && awk '/^auth:/{a=1; next} /^[^ ]/{a=0}
         a && /apikey:/{gsub(/'\''/, "", $2); print $2; exit}' config/bazarr/config/config.yaml || true ;;
+    QBIT_API_KEY) [ -f config/qbittorrent/qBittorrent/qBittorrent.conf ] && awk -F= '/^\[/{w=$0=="[WebUI]"} w && $1=="APIKey"{print $2; exit}' config/qbittorrent/qBittorrent/qBittorrent.conf || true ;;
     SEERR_API_KEY) [ -f config/seerr/settings.json ] && jq -r '.main.apiKey // empty' config/seerr/settings.json || true ;;
     DISPATCHARR_XC_USER)     xml_tag Username config/jellyfin/plugins/configurations/Jellyfin.Xtream.Library.xml ;;
     DISPATCHARR_XC_PASSWORD) xml_tag Password config/jellyfin/plugins/configurations/Jellyfin.Xtream.Library.xml ;;
@@ -251,7 +252,7 @@ default QBIT_USERNAME "$(env_val ADMIN_USER)"
 default QBIT_PASSWORD "$(env_val ADMIN_PASSWORD)"
 
 # ---- Keys the apps use with each other -----------------------------------------------------
-for name in SONARR_API_KEY RADARR_API_KEY PROWLARR_API_KEY BAZARR_API_KEY SEERR_API_KEY \
+for name in SONARR_API_KEY RADARR_API_KEY PROWLARR_API_KEY BAZARR_API_KEY SEERR_API_KEY QBIT_API_KEY \
             DISPATCHARR_XC_USER DISPATCHARR_XC_PASSWORD; do
   [ -z "$(env_val "$name")" ] || continue
   value=$(existing_key "$name")
@@ -261,6 +262,7 @@ for name in SONARR_API_KEY RADARR_API_KEY PROWLARR_API_KEY BAZARR_API_KEY SEERR_
   fi
   case $name in
     SEERR_API_KEY)           value=$(random_string 48) ;;
+    QBIT_API_KEY)            value=qbt_$(random_string 28) ;;
     DISPATCHARR_XC_USER)     value=streamer ;;
     DISPATCHARR_XC_PASSWORD) value=$(random_string 24) ;;
     *)                       value=$(random_hex 32) ;;
