@@ -25,8 +25,32 @@ say()     { echo "  $*"; }
 
 # ---------------------------------------------------------------------------------
 step "Checks"
+# Packages the scripts use, installed when their command is missing.
+need=()
+have() { command -v "$1" >/dev/null; }
+have docker      || need+=(docker.io)
+docker compose version >/dev/null 2>&1 || need+=(docker-compose-v2)
+have jq          || need+=(jq)
+have curl        || need+=(curl)
+have python3     || need+=(python3)
+have magick || have convert || need+=(imagemagick)
+have smartctl    || need+=(smartmontools)
+have crontab     || need+=(cron)
+have logrotate   || need+=(logrotate)
+have flock       || need+=(util-linux)
+[ -f /usr/share/zoneinfo/zone.tab ] || need+=(tzdata)
+if [ ${#need[@]} -gt 0 ]; then
+  have apt-get || { echo "install these first: ${need[*]}"; exit 1; }
+  say "installing ${need[*]}"
+  DEBIAN_FRONTEND=noninteractive apt-get -qq update
+  # Ubuntu calls Compose v2 docker-compose-v2, Debian docker-compose.
+  apt-cache show docker-compose-v2 >/dev/null 2>&1 || need=("${need[@]/#docker-compose-v2/docker-compose}")
+  DEBIAN_FRONTEND=noninteractive apt-get -y -qq install "${need[@]}" >/dev/null \
+    || { echo "could not install: ${need[*]}"; exit 1; }
+  systemctl enable --now docker cron >/dev/null 2>&1
+fi
 for cmd in docker jq curl python3 md5sum; do
-  command -v "$cmd" >/dev/null || { echo "$cmd is not installed (see README, Requirements)"; exit 1; }
+  have "$cmd" || { echo "$cmd is not installed (see README, Requirements)"; exit 1; }
 done
 missing=()
 for v in PUID PGID DATA_ROOT MOVIES_DIR SERIES_DIR TORRENTS_DIR ADMIN_USER ADMIN_PASSWORD \
