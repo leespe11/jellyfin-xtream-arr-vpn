@@ -24,7 +24,9 @@
       <SeriesFolderMappings />
       <TmdbFolderIdOverrides />
       <TvdbFolderIdOverrides />
-      <CustomTitleRemoveTerms>4K-
+      <CustomTitleRemoveTerms>EN-
+EN -
+4K-
 NF -
 TOP -
 AMZ -
@@ -44,7 +46,8 @@ SHWT -
 OSN+ -
 NICK -
 AR -
-NF -</CustomTitleRemoveTerms>
+NF -
+DO -</CustomTitleRemoveTerms>
       <RegexRemovalPatterns />
       <DownloadArtworkForUnmatched>true</DownloadArtworkForUnmatched>
       <EnableProactiveMediaInfo>false</EnableProactiveMediaInfo>
