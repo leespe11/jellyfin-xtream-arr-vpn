@@ -267,9 +267,16 @@ profile that something uses is kept). Size limits per quality (MB per minute) ar
 **Ultra-HD** profile. Admins always see it; give other users the **Advanced Requests**
 permission (Settings → Users).
 
-**Region and language:** metadata and Seerr's streaming providers are set up for Canada,
-in English, with English subtitles. To change them: Jellyfin → Dashboard → General and each
-library's settings, Seerr → Settings → General, Bazarr → Settings → Languages.
+**Region and language:** metadata and Seerr's streaming providers use the country of your
+`TZ` (e.g. `America/Toronto` → Canada), in English, with English subtitles. To change them:
+Jellyfin → Dashboard → General and each library's settings, Seerr → Settings → General,
+Bazarr → Settings → Languages.
+
+**Hardware transcoding:** with an Intel GPU (Quick Sync) or an AMD one (VA-API),
+`bootstrap.sh` turns it on in Jellyfin and gives Jellyfin the GPU through
+`docker-compose.override.yml`. It only reads which GPU `/sys/class/drm` lists. Other
+machines (ARM, NVIDIA, none) transcode on the CPU; set it up by hand in Jellyfin →
+Dashboard → Playback → Transcoding.
 
 **After changing a setting:**
 - Download settings (profiles, qualities, scores, size limits): `scripts/bootstrap.sh`.
@@ -354,7 +361,9 @@ Jellyfin tuner + guide -> livetv-proxy (:8097) -> Dispatcharr (:9191) -> IPTV pr
 `bootstrap.sh` already points Jellyfin's tuner at `http://localhost:8097/LiveTv.m3u` and
 its guide at `http://localhost:8097/Epg.xml`. Channel names, sorting and the stream fix
 are the `LIVETV_*` settings; how the stream fix works is described at the top of
-`scripts/livetv-proxy.py`.
+`scripts/livetv-proxy.py`. The channels are numbered 1..N only for order, so a small script
+in the **JavaScript Injector** plugin hides the numbers in Jellyfin's guide and channel
+list.
 
 **Guide looks stale after a change?** Jellyfin re-uses its downloaded guide for about an
 hour. Clear it, then refresh the guide in Jellyfin:

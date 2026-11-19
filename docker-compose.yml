@@ -137,8 +137,8 @@ services:
       - ${JELLYFIN_BULK_DIR:-./config/jellyfin}/xtream-library:/config/xtream-library
       - ${MOVIES_DIR:-/mnt/storage/Movies}:/media/movies
       - ${SERIES_DIR:-/mnt/storage/Series}:/media/tvshows
-    devices:
-       - /dev/dri:/dev/dri   # uncomment for Intel/AMD hardware transcoding
+    # An Intel or AMD GPU (/dev/dri) is added by docker-compose.override.yml, which
+    # bootstrap.sh writes on machines that have one.
     restart: unless-stopped
 
 # Tidies Dispatcharr's Live TV channels for Jellyfin: removes the STRIP_PREFIXES /

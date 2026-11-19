@@ -50,6 +50,19 @@ for d in "$MOVIES_DIR" "$SERIES_DIR" "$TORRENTS_DIR"; do
 done
 JELLYFIN_BULK=$(jellyfin_bulk_dir)
 SERVER_NAME=$(env_val SERVER_NAME); SERVER_NAME=${SERVER_NAME:-jellyfin}
+# Country for metadata and Seerr's streaming providers: TZ's, from the tz database.
+REGION=$(awk -v tz="$(env_val TZ)" '$1 !~ /^#/ && $3 == tz {print $1; exit}' /usr/share/zoneinfo/zone.tab 2>/dev/null)
+REGION=${REGION:-US}
+# Hardware transcoding with an Intel (QSV) or AMD (VA-API) GPU, none otherwise.
+HWACCEL=none RENDER_NODE=/dev/dri/renderD128
+for v in /sys/class/drm/renderD*/device/vendor; do
+  case $(cat "$v" 2>/dev/null) in
+    0x8086) HWACCEL=qsv ;;
+    0x1002) HWACCEL=vaapi ;;
+    *) continue ;;
+  esac
+  RENDER_NODE=/dev/dri/${v#/sys/class/drm/}; RENDER_NODE=${RENDER_NODE%/device/vendor}; break
+done
 # Quality profiles, each "name|qualities|x265 score"; the first is Seerr's default, and an
 # empty QUALITY_PROFILE_4K means no 4K profile.
 QUALITY_PROFILE=$(env_val QUALITY_PROFILE)
@@ -114,6 +127,9 @@ for f in $T/jellyfin/plugins/*.xml; do
   seed "$f" "config/jellyfin/plugins/configurations/${f##*/}" xml
 done
 [ $KEPT -eq 0 ] || say "$KEPT already there, kept as they are"
+if [ "$HWACCEL" != none ] && [ ! -e docker-compose.override.yml ]; then
+  printf 'services:\n  jellyfin:\n    devices:\n      - /dev/dri:/dev/dri\n' > docker-compose.override.yml
+fi
 # Bazarr's file needs Jellyfin's library ids and key, so it's created further down.
 
 # ---------------------------------------------------------------------------------
@@ -187,8 +203,8 @@ if ! wait_for "$JF/System/Info/Public" 600; then
 else
   if [ "$(curl -fsS "$JF/System/Info/Public" | jq -r .StartupWizardCompleted)" != true ]; then
     # The first-run wizard, done through its API: language, admin user, finish.
-    jf POST /Startup/Configuration "$(jq -n --arg n "$SERVER_NAME" '{ServerName: $n, UICulture: "en-US",
-         MetadataCountryCode: "CA", PreferredMetadataLanguage: "en"}')" >/dev/null \
+    jf POST /Startup/Configuration "$(jq -n --arg n "$SERVER_NAME" --arg r "$REGION" '{ServerName: $n, UICulture: "en-US",
+         MetadataCountryCode: $r, PreferredMetadataLanguage: "en"}')" >/dev/null \
       && jf GET /Startup/User >/dev/null \
       && jf POST /Startup/User "$(jq -n --arg n "$(env_val JELLYFIN_ADMIN_USER)" \
            --arg p "$(env_val JELLYFIN_ADMIN_PASSWORD)" '{Name: $n, Password: $p}')" >/dev/null \
@@ -245,7 +261,7 @@ if $JELLYFIN_OK; then
     else
       problem "could not create Jellyfin library $name"
     fi
-  done < <(jq -c '.[]' $T/jellyfin/libraries.json)
+  done < <(render $T/jellyfin/libraries.json json | jq -c '.[]')
   [ $created -eq 0 ] || jf POST /Library/Refresh >/dev/null || true
 
   # Library scan daily at 4:30 instead of every 12 h (only while it's Jellyfin's default).
