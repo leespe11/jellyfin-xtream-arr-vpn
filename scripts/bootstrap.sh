@@ -77,16 +77,26 @@ SERVER_NAME=$(env_val SERVER_NAME); SERVER_NAME=${SERVER_NAME:-jellyfin}
 # Country for metadata and Seerr's streaming providers: TZ's, from the tz database.
 REGION=$(awk -v tz="$(env_val TZ)" '$1 !~ /^#/ && $3 == tz {print $1; exit}' /usr/share/zoneinfo/zone.tab 2>/dev/null)
 REGION=${REGION:-US}
-# Hardware transcoding with an Intel (QSV) or AMD (VA-API) GPU, none otherwise.
-HWACCEL=none RENDER_NODE=/dev/dri/renderD128
+# Hardware transcoding, best first: NVIDIA (NVENC, only when its driver and the NVIDIA
+# Container Toolkit already work), Intel (QSV), AMD (VA-API); none otherwise.
+HWACCEL=none RENDER_NODE=/dev/dri/renderD128 QSV_DEVICE= intel= amd= nodes=0
 for v in /sys/class/drm/renderD*/device/vendor; do
-  case $(cat "$v" 2>/dev/null) in
-    0x8086) HWACCEL=qsv ;;
-    0x1002) HWACCEL=vaapi ;;
-    *) continue ;;
+  [ -r "$v" ] || continue
+  node=${v%/device/vendor}; node=/dev/dri/${node##*/}; nodes=$((nodes + 1))
+  case $(cat "$v") in
+    0x8086) intel=${intel:-$node} ;;
+    0x1002) amd=${amd:-$node} ;;
   esac
-  RENDER_NODE=/dev/dri/${v#/sys/class/drm/}; RENDER_NODE=${RENDER_NODE%/device/vendor}; break
 done
+if command -v nvidia-smi >/dev/null && nvidia-smi -L >/dev/null 2>&1 \
+   && docker info --format '{{json .Runtimes}}' 2>/dev/null | grep -q '"nvidia"'; then
+  HWACCEL=nvenc
+elif [ -n "$intel" ]; then
+  HWACCEL=qsv RENDER_NODE=$intel
+  [ $nodes -eq 1 ] || QSV_DEVICE=$intel   # with several GPUs, point QSV at the Intel one
+elif [ -n "$amd" ]; then
+  HWACCEL=vaapi RENDER_NODE=$amd
+fi
 # Quality profiles, each "name|qualities|x265 score"; the first is Seerr's default, and an
 # empty QUALITY_PROFILE_4K means no 4K profile.
 QUALITY_PROFILE=$(env_val QUALITY_PROFILE)
@@ -151,8 +161,11 @@ for f in $T/jellyfin/plugins/*.xml; do
   seed "$f" "config/jellyfin/plugins/configurations/${f##*/}" xml
 done
 [ $KEPT -eq 0 ] || say "$KEPT already there, kept as they are"
-if [ "$HWACCEL" != none ] && [ ! -e docker-compose.override.yml ]; then
-  printf 'services:\n  jellyfin:\n    devices:\n      - /dev/dri:/dev/dri\n' > docker-compose.override.yml
+if [ ! -e docker-compose.override.yml ]; then
+  case $HWACCEL in
+    nvenc) printf 'services:\n  jellyfin:\n    deploy:\n      resources:\n        reservations:\n          devices:\n            - driver: nvidia\n              count: all\n              capabilities: [gpu]\n' > docker-compose.override.yml ;;
+    qsv|vaapi) printf 'services:\n  jellyfin:\n    devices:\n      - /dev/dri:/dev/dri\n' > docker-compose.override.yml ;;
+  esac
 fi
 # Bazarr's file needs Jellyfin's library ids and key, so it's created further down.
 

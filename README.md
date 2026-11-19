@@ -274,11 +274,22 @@ permission (Settings → Users).
 Jellyfin → Dashboard → General and each library's settings, Seerr → Settings → General,
 Bazarr → Settings → Languages.
 
-**Hardware transcoding:** with an Intel GPU (Quick Sync) or an AMD one (VA-API),
-`bootstrap.sh` turns it on in Jellyfin and gives Jellyfin the GPU through
-`docker-compose.override.yml`. It only reads which GPU `/sys/class/drm` lists. Other
-machines (ARM, NVIDIA, none) transcode on the CPU; set it up by hand in Jellyfin →
-Dashboard → Playback → Transcoding.
+**Hardware transcoding:** `bootstrap.sh` turns it on in Jellyfin for the best GPU it
+finds, and gives Jellyfin that GPU through `docker-compose.override.yml` (a file Docker
+Compose reads along with `docker-compose.yml`; it's not in git):
+
+| GPU | Jellyfin setting | Needs |
+|---|---|---|
+| NVIDIA | NVENC | the NVIDIA driver and the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html), installed and working |
+| Intel | Quick Sync (QSV) | nothing |
+| AMD | VA-API | nothing |
+| none of these (ARM, ...) | none: the CPU transcodes | |
+
+With more than one, it takes the first in that order. It only reads which GPUs the kernel
+lists, and whether `nvidia-smi` works and Docker has the `nvidia` runtime; it never installs
+GPU drivers. Without the toolkit an NVIDIA card is skipped. Only Intel has been tested so
+far. To change it later: Jellyfin → Dashboard → Playback → Transcoding, and
+`docker-compose.override.yml`.
 
 **After changing a setting:**
 - Download settings (profiles, qualities, scores, size limits): `scripts/bootstrap.sh`.
