@@ -123,8 +123,9 @@ main() {
   local drives="" d out status temp realloc
   for d in $(lsblk -dno NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'); do
     out=$(smartctl -H -A "$d" 2>/dev/null)
-    if   grep -qiE 'FAILED|FAILING' <<<"$out"; then status="❌ FAILING"; problem "SMART says $d is failing: replace it"
-    elif grep -qiE 'PASSED|: OK' <<<"$out";   then status="✅ healthy"
+    # The overall verdict, or an attribute failing now (not the table's WHEN_FAILED header).
+    if   grep -qE 'test result: FAILED|Health Status: [^O]|FAILING_NOW' <<<"$out"; then status="❌ FAILING"; problem "SMART says $d is failing: replace it"
+    elif grep -qE 'test result: PASSED|Health Status: OK' <<<"$out"; then status="✅ healthy"
     else status="❔ no SMART data"; fi
     temp=$(awk '/Temperature_Celsius/{print $10; exit} /^Temperature:/{print $2; exit}' <<<"$out")
     realloc=$(awk '/Reallocated_Sector_Ct/{print $10}' <<<"$out")
