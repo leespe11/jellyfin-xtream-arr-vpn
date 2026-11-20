@@ -2,7 +2,7 @@
   "main": {
     "apiKey": "{{SEERR_API_KEY}}",
     "mediaServerType": 4,
-    "discoverRegion": "",
+    "discoverRegion": "{{REGION}}",
     "streamingRegion": "{{REGION}}",
     "partialRequestsEnabled": true
   }
