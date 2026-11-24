@@ -17,11 +17,14 @@
              the provider restarts it a few seconds back in time; Jellyfin keeps the
              original timestamps (-copyts), so its player freezes or loops the audio.
              FFmpeg evens out such jumps. Before FFmpeg, the replayed part is cut out:
-             every picture and audio frame sent is remembered (a hash of its data), and
-             after a reconnect everything is held back while the replay arrives. Pictures
-             and audio already sent are dropped, and playback carries on with the first
-             picture that wasn't sent, so the viewer sees a short pause but misses
-             nothing. Only when the provider's replay doesn't reach back far enough
+             every picture sent is remembered (a hash of its data), and after a
+             reconnect everything is held back while the replay arrives. Pictures
+             already sent are dropped, and playback carries on with the first picture
+             that wasn't sent, so the viewer sees a short pause but misses nothing.
+             Audio is cut by its timestamps instead (Dispatcharr re-encodes it, so a
+             replay's audio has other bytes): that picture gives the offset between the
+             old and new connection's clocks, and audio up to the end of the last audio
+             sent is dropped, which keeps sound and picture in sync. Only when the provider's replay doesn't reach back far enough
              (a real gap) does it carry on from the next keyframe instead. If
              Dispatcharr gives up on the channel, it's asked for it again (a fresh
              provider connection) for up to RESTART_FOR seconds while the player waits;
@@ -240,7 +243,6 @@ HOLD_LIMIT = 16 << 20      # stop holding back after a reconnect beyond this muc
 MAX_SKIP = 900             # most pictures dropped per reconnect: 15-37 s (a replay is ~10 s;
                            # a looping slate repeats the same pictures and mustn't stall)
 SENT_FRAMES = 18000        # pictures remembered (~10 min at 30 fps)
-SENT_OTHER = 40000         # audio (and other) frames remembered (~10 min)
 IDR = re.compile(rb"\x00\x00\x01(?:[\x25\x45\x65]|[\x26\x28]\x01)")  # H.264 / HEVC IDR
 
 
@@ -277,20 +279,36 @@ def pes_body(p):
     return p[9 + p[8]:] if len(p) >= 9 and p[:3] == b"\x00\x00\x01" else p
 
 
+WRAP = 1 << 33              # MPEG timestamps (90 kHz) wrap around at 2^33
+
+
+def later(a, b):
+    """Is timestamp a after b (allowing for the wrap-around)?"""
+    d = (a - b) % WRAP
+    return 0 < d < WRAP // 2
+
+
 class ReplaySkipper:
     """Cuts the replayed part out of a channel's MPEG-TS stream after a reconnect.
 
-    In normal play every packet passes, and a hash of every picture (video PES) and
-    every audio frame (other PES) sent is remembered, without the PES headers since a
-    replay has new timestamps. After a reconnect (Dispatcharr's discontinuity marker, a
-    jump in a stream's timestamps, or a new connection to Dispatcharr) packets are held
-    back. Pictures that were already sent are the replay and are dropped, each one
-    lining the replay up with what was sent. Once the replay has caught up, the next
-    picture is the first new one and playback carries on from it: its reference
-    pictures are the ones the player just showed, so it decodes cleanly and nothing is
-    skipped. Held audio already sent is dropped and new audio kept, wherever it sits.
+    In normal play every packet passes, and a hash of every picture (video PES,
+    without its header, since a replay has new timestamps) is remembered. After a
+    reconnect (Dispatcharr's discontinuity marker, a jump in a stream's timestamps, or
+    a new connection to Dispatcharr) packets are held back. Pictures that were already
+    sent are the replay and are dropped, each one lining the replay up with what was
+    sent. Once the replay has caught up, the next picture is the first new one and
+    playback carries on from it: its reference pictures are the ones the player just
+    showed, so it decodes cleanly and nothing is skipped.
+
+    Audio can't be matched the same way: Dispatcharr re-encodes it on every connection,
+    so a replayed audio frame has different bytes. Instead the picture playback carries
+    on with gives the offset between the old connection's clock and the new one, and
+    audio is kept from just after the last audio sent (on the new clock), wherever it
+    sits in the stream; earlier audio is the replay and is dropped.
+
     If the replay doesn't reach back to what was sent (the provider skipped ahead),
-    playback can only carry on from a keyframe, as there's nothing to decode from."""
+    playback can only carry on from a keyframe, as there's nothing to decode from;
+    audio then starts with that picture."""
 
     def __init__(self, log):
         self.log = log
@@ -299,25 +317,29 @@ class ReplaySkipper:
         self.frames = collections.deque()   # hashes of recent pictures sent, oldest first
         self.where = {}                     # hash -> number of the latest picture sent with it
         self.count = 0                      # number the next picture sent gets
-        self.other = collections.deque()    # hashes of recent audio frames sent
-        self.other_seen = collections.Counter()
-        self.pes = {}       # PID -> [sha1, held indexes (None: keep), is keyframe, first held index]
-        self.last_time = {}                 # PID -> last PES timestamp
+        self.last_dts, self.frame_ticks = None, 3754    # last picture sent; picture length
+        self.audio_last = {}                # PID -> timestamp of the last audio PES sent
+        self.audio_ticks = {}               # PID -> length of an audio PES (several frames)
+        self.floor = {}                     # PID -> audio up to this timestamp is replayed
+        self.dropping = {}                  # PID -> the audio frame being read is dropped
+        self.video = None                   # picture being read: [sha1, held index, keyframe?, DTS]
+        self.audio = {}                     # PID -> audio frame being read: [PID, timestamp, held indexes]
+        self.held_audio = []                # audio frames begun during the hold, in order
+        self.last_time = {}                 # PID -> last PES timestamp (reconnect detection)
         self.checking = False
-        self.held, self.drop = [], set()
+        self.held = []
         self.expect = None                  # number of the sent picture the replay is up to
-        self.skipped = self.dropped_audio = 0
+        self.skipped = 0
 
     def new_connection(self):
-        """The frames being read when the old connection ended went out, whole or cut
-        short: count them as sent. A whole one then matches its copy in the replay; a
-        cut one doesn't, and the replay's whole copy follows it."""
+        """The picture being read when the old connection ended went out, whole or cut
+        short: count it as sent. A whole one then matches its copy in the replay; a cut
+        one doesn't, and the replay's whole copy follows it."""
         self.buf = b""
-        if not self.checking:
-            for pid, st in self.pes.items():
-                h = st[0].digest()
-                self._remember_picture(h) if pid == self.video_pid else self._remember_other(h)
-        self.pes.clear()
+        if self.video and not self.checking:
+            self._remember_picture(self.video[0].digest(), self.video[3])
+        self.video = None
+        self.audio.clear()
         self._start_check()
 
     def feed(self, data):
@@ -335,10 +357,12 @@ class ReplaySkipper:
     def _start_check(self):
         if self.checking:
             return
-        self.checking, self.held, self.drop = True, [], set()
-        self.expect, self.skipped, self.dropped_audio = None, 0, 0
-        for st in self.pes.values():    # begun before the hold: part of it went out already
-            st[1], st[3] = None, None
+        self.checking, self.held, self.held_audio = True, [], []
+        self.expect, self.skipped = None, 0
+        if self.video:
+            self.video[1] = None            # begun before the hold: part of it went out already
+        for a in self.audio.values():
+            a[2] = None
 
     def _jumped(self, pid, t, disc):
         """A reconnect shows on any stream first (often audio, a moment before the
@@ -350,9 +374,9 @@ class ReplaySkipper:
             return True
         if t is None or last is None:
             return False
-        d = (t - last) % (1 << 33)
-        if d >= 1 << 32:
-            d -= 1 << 33
+        d = (t - last) % WRAP
+        if d >= WRAP // 2:
+            d -= WRAP
         return d < -45000 or d > 900000            # back over 0.5 s, or ahead over 10 s
 
     def _packet(self, pkt, out):
@@ -362,87 +386,165 @@ class ReplaySkipper:
             self._pat(ts_payload(pkt))
         elif start and pid in self.pmt_pids:
             self._pmt(ts_payload(pkt))
-        if pid != 0 and pid != 0x1FFF and pid not in self.pmt_pids:     # video, audio etc.
-            payload = ts_payload(pkt)
-            rai, disc = ts_flags(pkt)
-            if start:
-                self._end_pes(pid, out)
-                if self._jumped(pid, pes_time(payload), disc):
-                    self._start_check()
-                body = pes_body(payload)
-                key = pid == self.video_pid and bool(rai or IDR.search(body))
-                at = len(self.held) if self.checking else None
-                self.pes[pid] = [hashlib.sha1(body), [] if self.checking else None, key, at]
-            else:
-                if disc and self._jumped(pid, None, disc):
-                    self._start_check()
-                if st := self.pes.get(pid):
-                    st[0].update(payload)
-            if self.checking and (st := self.pes.get(pid)) and st[1] is not None:
-                st[1].append(len(self.held))
-        (self.held if self.checking else out).append(pkt)
+        if pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
+            (self.held if self.checking else out).append(pkt)
+        elif pid == self.video_pid:
+            self._video(pkt, start, out)
+        else:
+            self._audio(pid, pkt, start, out)
         if self.checking and len(self.held) * TS > HOLD_LIMIT:
             self.log(f"no place to carry on found after a reconnect; passing {len(self.held) * TS >> 20} MB through")
-            self._release(0, out)
+            self._release(0, None, None, out)
 
-    def _end_pes(self, pid, out):
-        st = self.pes.pop(pid, None)
-        if st is None:
-            return
-        h = st[0].digest()
-        if pid == self.video_pid:
-            self._picture(h, st[2], st[3], out)
-        elif self.checking and st[1] is not None and self.other_seen[h]:
-            self.drop.update(st[1])                 # audio the player already has
-            self.dropped_audio += 1
+    def _video(self, pkt, start, out):
+        payload = ts_payload(pkt)
+        if start:
+            if v := self.video:
+                self.video = None
+                self._picture(v[0].digest(), v[2], v[1], v[3], out)
+            rai, disc = ts_flags(pkt)
+            t = pes_time(payload)
+            if self._jumped(self.video_pid, t, disc):
+                self._start_check()
+            body = pes_body(payload)
+            self.video = [hashlib.sha1(body), len(self.held) if self.checking else None,
+                          bool(rai or IDR.search(body)), t]
         else:
-            self._remember_other(h)
+            if ts_flags(pkt)[1] and self._jumped(self.video_pid, None, True):
+                self._start_check()
+            if self.video:
+                self.video[0].update(payload)
+        (self.held if self.checking else out).append(pkt)
 
-    def _picture(self, h, key, at, out):
+    def _audio(self, pid, pkt, start, out):
+        """Audio (and subtitles etc.): held while checking; otherwise sent, except
+        frames up to the floor (replayed audio)."""
+        disc = ts_flags(pkt)[1]
+        if start:
+            t = pes_time(ts_payload(pkt))
+            if self._jumped(pid, t, disc):
+                self._start_check()
+            if self.checking:
+                self.audio[pid] = a = [pid, t, [len(self.held)]]
+                self.held_audio.append(a)
+            else:
+                self.audio[pid] = [pid, t, None]
+                self.dropping[pid] = self._below_floor(pid, t)
+                if not self.dropping[pid]:
+                    self._audio_sent(pid, t)
+        elif disc and self._jumped(pid, None, True):
+            self._start_check()
+        a = self.audio.get(pid)
+        if self.checking:
+            if a and a[2] is not None:
+                if not start:
+                    a[2].append(len(self.held))
+                self.held.append(pkt)
+            elif not self.dropping.get(pid):     # rest of a frame begun before the hold
+                self.held.append(pkt)
+        elif not self.dropping.get(pid):
+            out.append(pkt)
+
+    def _audio_sent(self, pid, t):
+        if t is None:
+            return
+        if (last := self.audio_last.get(pid)) is not None:
+            d = (t - last) % WRAP
+            if 0 < d <= 45000:                      # a plausible PES length (up to 0.5 s)
+                self.audio_ticks[pid] = d
+        self.audio_last[pid] = t
+
+    def _below_floor(self, pid, t):
+        """Is an audio frame at t replayed audio (up to the floor)? The floor is
+        removed once audio past it arrives."""
+        f = self.floor.get(pid)
+        if f is None or t is None:
+            return False
+        if later(t, f):
+            del self.floor[pid]
+            return False
+        return True
+
+    def _picture(self, h, key, at, dts, out):
         """A complete picture: in normal play remember it; after a reconnect decide
         whether it's the replay (drop it) or where playback carries on."""
         if not self.checking or at is None:
-            self._remember_picture(h)
+            self._remember_picture(h, dts)
             return
         n = self.where.get(h)
         known = n is not None and n >= self.count - len(self.frames)
         if self.expect == self.count:               # the replay has caught up: this is new
-            self._carry_on(at, h, out, "right after the last picture sent")
+            self._carry_on(at, h, dts, self._offset(dts, 1), out, "right after the last picture sent")
         elif known and self.skipped < MAX_SKIP:     # sent already: part of the replay
             self.expect, self.skipped = n + 1, self.skipped + 1
         elif self.expect == self.count - 1:         # the last picture sent was cut short
-            self._carry_on(at, h, out, "with the picture the drop cut short")
+            self._carry_on(at, h, dts, self._offset(dts, 0), out, "with the picture the drop cut short")
         elif key or self.skipped >= MAX_SKIP:
             how = "at a keyframe (the replay didn't reach back far enough)" if not known \
                 else "after too long a replay (a still image?)"
-            self._carry_on(at, h, out, how)
+            self._carry_on(at, h, dts, None, out, how)
         else:                                       # new, but can't be decoded from here
             self.skipped += 1
 
-    def _carry_on(self, at, h, out, how):
-        if self.count and (self.skipped or self.dropped_audio or "keyframe" in how):
-            self.log(f"after a reconnect: dropped {self.skipped} pictures, {self.dropped_audio} audio "
-                     f"frames; carrying on {how}")
-        self._release(at, out)
-        self._remember_picture(h)
+    def _offset(self, dts, after):
+        """New clock minus old clock, from the picture playback carries on with: it is
+        the last picture sent (after=0) or the one after it (after=1)."""
+        if dts is None or self.last_dts is None:
+            return None
+        return (dts - self.last_dts - after * self.frame_ticks) % WRAP
 
-    def _release(self, at, out):
-        """Ends the hold: sends what was held from index `at` on, plus held audio from
-        before it that the player doesn't have yet."""
-        for i, pkt in enumerate(self.held):
-            if i in self.drop:
-                continue
-            if i >= at:
-                out.append(pkt)
+    def _carry_on(self, at, h, dts, offset, out, how):
+        if self.count and (self.skipped or "keyframe" in how):
+            self.log(f"after a reconnect: dropped {self.skipped} replayed pictures; carrying on {how}")
+        self._release(at, dts, offset, out)
+        self._remember_picture(h, dts)
+
+    def _release(self, at, dts, offset, out):
+        """Ends the hold: sends the held packets from index `at` on, and held audio
+        that isn't replayed wherever it sits. Replayed audio is what comes up to the
+        last audio sent, moved to the new clock (offset); without an offset, audio
+        starts with the picture at `at` (DTS dts)."""
+        if offset is not None:
+            # A replayed PES with more than half of it after the end of the last one sent
+            # is kept: Dispatcharr's re-encoded audio has other PES boundaries.
+            self.floor = {pid: (t + offset + self.audio_ticks.get(pid, 0) // 2) % WRAP
+                          for pid, t in self.audio_last.items()}
+        elif dts is not None and at:
+            pids = set(self.audio_last) | {a[0] for a in self.held_audio}
+            self.floor = {pid: (dts - 1) % WRAP for pid in pids}
+        else:
+            self.floor = {}
+        drop, by_clock = set(), set(self.floor)
+        for a in self.held_audio:                   # in stream order
+            pid, t, idx = a
+            if pid in by_clock:
+                gone = self._below_floor(pid, t)
+            else:                                   # no clock to go by
+                gone = idx[0] < at
+            if gone:
+                drop.update(idx)
             else:
+                self._audio_sent(pid, t)
+            if self.audio.get(pid) is a:            # still being read: decides the rest of it
+                self.dropping[pid] = gone
+        for i, pkt in enumerate(self.held):
+            if i in drop:
+                continue
+            if i < at:
                 pid = ts_pid(pkt)
-                if pid != self.video_pid and pid not in (0, 0x1FFF) and pid not in self.pmt_pids:
-                    out.append(pkt)
-        self.checking, self.held, self.drop = False, [], set()
-        for st in self.pes.values():
-            st[1], st[3] = None, None
+                if pid == self.video_pid or pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
+                    continue                        # replayed or undecodable pictures
+            out.append(pkt)
+        self.checking, self.held, self.held_audio = False, [], []
+        for a in self.audio.values():
+            a[2] = None
 
-    def _remember_picture(self, h):
+    def _remember_picture(self, h, dts):
+        if dts is not None and self.last_dts is not None:
+            d = (dts - self.last_dts) % WRAP
+            if 0 < d <= 9000:                       # a plausible picture length (10-90 fps)
+                self.frame_ticks = d
+        self.last_dts = dts
         self.where[h] = self.count
         self.frames.append(h)
         self.count += 1
@@ -450,15 +552,6 @@ class ReplaySkipper:
             old, number = self.frames.popleft(), self.count - len(self.frames) - 1
             if self.where.get(old) == number:
                 del self.where[old]
-
-    def _remember_other(self, h):
-        self.other.append(h)
-        self.other_seen[h] += 1
-        if len(self.other) > SENT_OTHER:
-            old = self.other.popleft()
-            self.other_seen[old] -= 1
-            if not self.other_seen[old]:
-                del self.other_seen[old]
 
     def _pat(self, p):
         if not p or len(p) <= p[0] + 8:
