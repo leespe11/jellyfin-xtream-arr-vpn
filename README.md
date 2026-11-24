@@ -257,6 +257,7 @@ All in `.env`; `.env.example` explains each one. The ones you're most likely to 
 | `LIVETV_SORT_BY` | `name` | `name`, `group` or `dispatcharr` |
 | `LIVETV_SORT_ORDER` | `asc` | `asc` or `desc` |
 | `LIVETV_STRIP_PREFIXES` / `_SUFFIXES` | provider tags | Removed from channel names and guide titles |
+| `LIVETV_IDLE_AFTER` | `20` | Seconds before a channel nobody is playing in Jellyfin is closed; `0` = never |
 | `VPN_SERVICE_PROVIDER` | asked | Any gluetun WireGuard provider |
 | `PORT_REFRESH` | `no` | Windscribe only: `yes` renews the 7-day forwarded port ([Windscribe extras](#windscribe-extras)) |
 | `DISCORD_WEBHOOK` | | Channel → Edit Channel → Integrations → Webhooks; `DISCORD_NOTIFY=failures` for problems only |

@@ -158,6 +158,12 @@ services:
       SORT_BY: "${LIVETV_SORT_BY:-name}"
       SORT_ORDER: "${LIVETV_SORT_ORDER:-asc}"
       TIMESTAMP_FIX: "${LIVETV_TIMESTAMP_FIX:-1}"   # 0 = streams go straight to Dispatcharr (see scripts/livetv-proxy.py)
+      # Closes channels Jellyfin keeps open after the player has stopped. It signs in to
+      # Jellyfin to see what's being played; 0 = off.
+      IDLE_AFTER: "${LIVETV_IDLE_AFTER:-20}"
+      JELLYFIN_URL: "http://localhost:8096"
+      JELLYFIN_USER: "${JELLYFIN_ADMIN_USER:-}"
+      JELLYFIN_PASSWORD: "${JELLYFIN_ADMIN_PASSWORD:-}"
     depends_on:
       gluetun:
         condition: service_healthy
