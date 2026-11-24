@@ -17,11 +17,30 @@
              the provider restarts it a few seconds back in time; Jellyfin keeps the
              original timestamps (-copyts), so its player freezes or loops the audio.
              FFmpeg evens out such jumps. Before FFmpeg, the replayed part is cut out:
-             every keyframe sent is remembered (a hash of its picture data), and after a
-             reconnect everything is dropped until a keyframe that hasn't been sent yet,
-             so the viewer skips ahead a moment instead of watching the replay. If
+             every picture sent is remembered (a hash of its data), and after a
+             reconnect everything is held back while the replay arrives. Pictures
+             already sent are dropped, and playback carries on with the first picture
+             that wasn't sent, so the viewer sees a short pause but misses nothing.
+             Audio is cut by its timestamps instead (Dispatcharr re-encodes it, so a
+             replay's audio has other bytes): that picture gives the offset between the
+             old and new connection's clocks, and audio up to the end of the last audio
+             sent is dropped, which keeps sound and picture in sync. Only when the provider's replay doesn't reach back far enough
+             (a real gap) does it carry on from the next keyframe instead. If
              Dispatcharr gives up on the channel, it's asked for it again (a fresh
-             provider connection) for up to RESTART_FOR seconds while the player waits.
+             provider connection) for up to RESTART_FOR seconds while the player waits;
+             if Dispatcharr keeps refusing it (stopped in its web UI) for REFUSED_FOR
+             seconds, the proxy gives up.
+             When a player stops or changes channel, Jellyfin hangs up on the proxy at
+             once and the stream ends here within a second or two. But Jellyfin sometimes
+             keeps a channel open after the player has gone (it still counts a viewer
+             that's gone, so it keeps reading). The proxy's only client is Jellyfin, so
+             it can't see the player leave; instead, every CHECK_EVERY seconds while a
+             stream runs it asks Jellyfin which channels are being played. One nobody
+             has played for IDLE_AFTER seconds is closed in Jellyfin, and cut here if
+             Jellyfin keeps reading 10 s later; that frees the provider connection.
+             A new stream gets IDLE_AFTER seconds before it has to show up as played.
+             This is skipped while Jellyfin is recording, and whenever Jellyfin can't
+             be asked.
              The playlist's stream addresses point here when TIMESTAMP_FIX is on and
              FFmpeg is installed; otherwise at Dispatcharr.
 
@@ -36,6 +55,12 @@ Environment:
   SORT_ORDER      asc (default) or desc
   TIMESTAMP_FIX   1 (default) to send streams through /stream/<id>, 0 for straight to Dispatcharr
   RESTART_FOR     seconds to keep asking Dispatcharr for a channel it gave up on (default 60)
+  REFUSED_FOR     seconds of Dispatcharr refusing a channel (HTTP 503) before giving up (default 10)
+  IDLE_AFTER      seconds a channel nobody is playing in Jellyfin stays open (default 20; 0 = off)
+  CHECK_EVERY     seconds between asking Jellyfin, while a stream runs (default 5)
+  JELLYFIN_URL    default http://localhost:8096
+  JELLYFIN_API_KEY, or JELLYFIN_USER and JELLYFIN_PASSWORD (an admin): to ask Jellyfin
+                  what's being played. Without them IDLE_AFTER does nothing.
   PORT            default 8097
 
 Nothing is stored on disk.
@@ -45,6 +70,7 @@ import collections
 import hashlib
 import html
 import http.client
+import json
 import os
 import re
 import shutil
@@ -52,7 +78,9 @@ import socket
 import subprocess
 import threading
 import time
+import urllib.error
 import urllib.request
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 from xml.sax.saxutils import escape
@@ -63,6 +91,13 @@ PORT = int(os.environ.get("PORT", "8097"))
 DISPATCHARR = "{0.scheme}://{0.netloc}".format(urlsplit(SOURCE_M3U))
 TIMESTAMP_FIX = os.environ.get("TIMESTAMP_FIX", "1") == "1" and shutil.which("ffmpeg") is not None
 RESTART_FOR = int(os.environ.get("RESTART_FOR", "60"))
+REFUSED_FOR = int(os.environ.get("REFUSED_FOR", "10"))
+IDLE_AFTER = int(os.environ.get("IDLE_AFTER", "20"))
+CHECK_EVERY = max(1, int(os.environ.get("CHECK_EVERY", "5")))
+JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://localhost:8096").rstrip("/")
+JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "").strip()
+JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "").strip()
+JELLYFIN_PASSWORD = os.environ.get("JELLYFIN_PASSWORD", "")
 SORT_BY = os.environ.get("SORT_BY", "name").strip().lower() or "name"
 SORT_DESC = os.environ.get("SORT_ORDER", "asc").strip().lower() == "desc"
 GROUP_TITLE = re.compile(r'\sgroup-title="([^"]*)"')
@@ -135,7 +170,11 @@ def split_extinf(line):
 def stream_url(line):
     """Dispatcharr's stream address -> this proxy's /stream/<id> (when the fix is on)."""
     m = STREAM_URL.match(line)
-    return f"http://localhost:{PORT}/stream/{m.group(1)}" if TIMESTAMP_FIX and m else line
+    return proxy_url(m.group(1)) if TIMESTAMP_FIX and m else line
+
+
+def proxy_url(channel_id):
+    return f"http://localhost:{PORT}/stream/{channel_id}"
 
 
 def fix_playlist(m3u):
@@ -200,10 +239,15 @@ def fix_guide(epg):
 # --- MPEG-TS replay skipping -------------------------------------------------------
 TS = 188
 VIDEO_TYPES = {0x01, 0x02, 0x10, 0x1B, 0x24}   # MPEG-1/2, MPEG-4, H.264, HEVC
-HOLD_LIMIT = 16 << 20      # stop looking for a keyframe after holding back this much
-MAX_SKIP = 40              # most keyframes skipped per reconnect (a replay is ~10; a
-                           # still image repeats the same keyframe and mustn't stall)
+HOLD_LIMIT = 16 << 20      # stop holding back after a reconnect beyond this much
+MAX_SKIP = 900             # most pictures dropped per reconnect: 15-37 s (a replay is ~10 s;
+                           # a looping slate repeats the same pictures and mustn't stall)
+SENT_FRAMES = 18000        # pictures remembered (~10 min at 30 fps)
 IDR = re.compile(rb"\x00\x00\x01(?:[\x25\x45\x65]|[\x26\x28]\x01)")  # H.264 / HEVC IDR
+
+
+def ts_pid(pkt):
+    return ((pkt[1] & 0x1F) << 8) | pkt[2]
 
 
 def ts_payload(pkt):
@@ -231,32 +275,71 @@ def pes_time(p):
 
 
 def pes_body(p):
+    """A PES without its header (the header holds timestamps, which differ in a replay)."""
     return p[9 + p[8]:] if len(p) >= 9 and p[:3] == b"\x00\x00\x01" else p
+
+
+WRAP = 1 << 33              # MPEG timestamps (90 kHz) wrap around at 2^33
+
+
+def later(a, b):
+    """Is timestamp a after b (allowing for the wrap-around)?"""
+    d = (a - b) % WRAP
+    return 0 < d < WRAP // 2
 
 
 class ReplaySkipper:
     """Cuts the replayed part out of a channel's MPEG-TS stream after a reconnect.
 
-    In normal play every packet passes, and a hash of each video keyframe's whole
-    picture is remembered (the start alone isn't enough: static areas such as black
-    bars make the first part of different keyframes identical). After a reconnect (Dispatcharr's discontinuity marker, a jump
-    in the video's timestamps, or a new connection to Dispatcharr) packets are held
-    back until the next keyframe. A keyframe that was already sent means a replay: it
-    and everything held are dropped, and the next keyframe is checked. The first
-    keyframe not sent before is where playback carries on, so the viewer jumps ahead
-    a moment (past the rest of the last picture group) instead of seeing the replay."""
+    In normal play every packet passes, and a hash of every picture (video PES,
+    without its header, since a replay has new timestamps) is remembered. After a
+    reconnect (Dispatcharr's discontinuity marker, a jump in a stream's timestamps, or
+    a new connection to Dispatcharr) packets are held back. Pictures that were already
+    sent are the replay and are dropped, each one lining the replay up with what was
+    sent. Once the replay has caught up, the next picture is the first new one and
+    playback carries on from it: its reference pictures are the ones the player just
+    showed, so it decodes cleanly and nothing is skipped.
+
+    Audio can't be matched the same way: Dispatcharr re-encodes it on every connection,
+    so a replayed audio frame has different bytes. Instead the picture playback carries
+    on with gives the offset between the old connection's clock and the new one, and
+    audio is kept from just after the last audio sent (on the new clock), wherever it
+    sits in the stream; earlier audio is the replay and is dropped.
+
+    If the replay doesn't reach back to what was sent (the provider skipped ahead),
+    playback can only carry on from a keyframe, as there's nothing to decode from;
+    audio then starts with that picture."""
 
     def __init__(self, log):
         self.log = log
         self.buf = b""
         self.pmt_pids, self.video_pid = set(), None
-        self.sent = collections.deque(maxlen=900)   # recent keyframe hashes (~15+ min)
-        self.checking, self.held, self.skipped = False, [], 0
-        self.key = self.key_at = None
-        self.last_time = {}                         # PID -> last PES timestamp
+        self.frames = collections.deque()   # hashes of recent pictures sent, oldest first
+        self.where = {}                     # hash -> number of the latest picture sent with it
+        self.count = 0                      # number the next picture sent gets
+        self.last_dts, self.frame_ticks = None, 3754    # last picture sent; picture length
+        self.audio_last = {}                # PID -> timestamp of the last audio PES sent
+        self.audio_ticks = {}               # PID -> length of an audio PES (several frames)
+        self.floor = {}                     # PID -> audio up to this timestamp is replayed
+        self.dropping = {}                  # PID -> the audio frame being read is dropped
+        self.video = None                   # picture being read: [sha1, held index, keyframe?, DTS]
+        self.audio = {}                     # PID -> audio frame being read: [PID, timestamp, held indexes]
+        self.held_audio = []                # audio frames begun during the hold, in order
+        self.last_time = {}                 # PID -> last PES timestamp (reconnect detection)
+        self.checking = False
+        self.held = []
+        self.expect = None                  # number of the sent picture the replay is up to
+        self.skipped = 0
 
     def new_connection(self):
+        """The picture being read when the old connection ended went out, whole or cut
+        short: count it as sent. A whole one then matches its copy in the replay; a cut
+        one doesn't, and the replay's whole copy follows it."""
         self.buf = b""
+        if self.video and not self.checking:
+            self._remember_picture(self.video[0].digest(), self.video[3])
+        self.video = None
+        self.audio.clear()
         self._start_check()
 
     def feed(self, data):
@@ -272,9 +355,14 @@ class ReplaySkipper:
         return b"".join(out)
 
     def _start_check(self):
-        if not self.checking:
-            self.checking, self.held, self.skipped = True, [], 0
-            self.key = None
+        if self.checking:
+            return
+        self.checking, self.held, self.held_audio = True, [], []
+        self.expect, self.skipped = None, 0
+        if self.video:
+            self.video[1] = None            # begun before the hold: part of it went out already
+        for a in self.audio.values():
+            a[2] = None
 
     def _jumped(self, pid, t, disc):
         """A reconnect shows on any stream first (often audio, a moment before the
@@ -286,58 +374,184 @@ class ReplaySkipper:
             return True
         if t is None or last is None:
             return False
-        d = (t - last) % (1 << 33)
-        if d >= 1 << 32:
-            d -= 1 << 33
+        d = (t - last) % WRAP
+        if d >= WRAP // 2:
+            d -= WRAP
         return d < -45000 or d > 900000            # back over 0.5 s, or ahead over 10 s
 
     def _packet(self, pkt, out):
-        pid = ((pkt[1] & 0x1F) << 8) | pkt[2]
+        pid = ts_pid(pkt)
         start = bool(pkt[1] & 0x40)
         if start and pid == 0:
             self._pat(ts_payload(pkt))
         elif start and pid in self.pmt_pids:
             self._pmt(ts_payload(pkt))
-        if pid == self.video_pid:
-            payload = ts_payload(pkt)
-            if start:
-                self._close_key(out)
-                rai, disc = ts_flags(pkt)
-                if self._jumped(pid, pes_time(payload), disc) and not self.checking:
-                    self._start_check()
-                body = pes_body(payload)
-                if rai or IDR.search(body):
-                    self.key, self.key_at = hashlib.sha1(body), len(self.held)
-            elif self.key is not None:
-                self.key.update(payload)
-        elif pid != 0 and pid not in self.pmt_pids and pid != 0x1FFF:   # audio etc.
-            disc = ts_flags(pkt)[1]
-            t = pes_time(ts_payload(pkt)) if start else None
-            if (start or disc) and self._jumped(pid, t, disc) and not self.checking:
-                self._start_check()
-        (self.held if self.checking else out).append(pkt)
+        if pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
+            (self.held if self.checking else out).append(pkt)
+        elif pid == self.video_pid:
+            self._video(pkt, start, out)
+        else:
+            self._audio(pid, pkt, start, out)
         if self.checking and len(self.held) * TS > HOLD_LIMIT:
-            self.log(f"no keyframe found after a reconnect; passing {len(self.held) * TS >> 20} MB through")
-            out.extend(self.held)
-            self.checking, self.held = False, []
+            self.log(f"no place to carry on found after a reconnect; passing {len(self.held) * TS >> 20} MB through")
+            self._release(0, None, None, out)
 
-    def _close_key(self, out):
-        """Called when the keyframe's picture is complete (the next video packet starts)."""
-        if self.key is None:
+    def _video(self, pkt, start, out):
+        payload = ts_payload(pkt)
+        if start:
+            if v := self.video:
+                self.video = None
+                self._picture(v[0].digest(), v[2], v[1], v[3], out)
+            rai, disc = ts_flags(pkt)
+            t = pes_time(payload)
+            if self._jumped(self.video_pid, t, disc):
+                self._start_check()
+            body = pes_body(payload)
+            self.video = [hashlib.sha1(body), len(self.held) if self.checking else None,
+                          bool(rai or IDR.search(body)), t]
+        else:
+            if ts_flags(pkt)[1] and self._jumped(self.video_pid, None, True):
+                self._start_check()
+            if self.video:
+                self.video[0].update(payload)
+        (self.held if self.checking else out).append(pkt)
+
+    def _audio(self, pid, pkt, start, out):
+        """Audio (and subtitles etc.): held while checking; otherwise sent, except
+        frames up to the floor (replayed audio)."""
+        disc = ts_flags(pkt)[1]
+        if start:
+            t = pes_time(ts_payload(pkt))
+            if self._jumped(pid, t, disc):
+                self._start_check()
+            if self.checking:
+                self.audio[pid] = a = [pid, t, [len(self.held)]]
+                self.held_audio.append(a)
+            else:
+                self.audio[pid] = [pid, t, None]
+                self.dropping[pid] = self._below_floor(pid, t)
+                if not self.dropping[pid]:
+                    self._audio_sent(pid, t)
+        elif disc and self._jumped(pid, None, True):
+            self._start_check()
+        a = self.audio.get(pid)
+        if self.checking:
+            if a and a[2] is not None:
+                if not start:
+                    a[2].append(len(self.held))
+                self.held.append(pkt)
+            elif not self.dropping.get(pid):     # rest of a frame begun before the hold
+                self.held.append(pkt)
+        elif not self.dropping.get(pid):
+            out.append(pkt)
+
+    def _audio_sent(self, pid, t):
+        if t is None:
             return
-        h = self.key.digest()
-        at, self.key = self.key_at, None
-        if not self.checking:
-            self.sent.append(h)
-        elif h in self.sent and self.skipped < MAX_SKIP:   # replayed picture: drop it all
+        if (last := self.audio_last.get(pid)) is not None:
+            d = (t - last) % WRAP
+            if 0 < d <= 45000:                      # a plausible PES length (up to 0.5 s)
+                self.audio_ticks[pid] = d
+        self.audio_last[pid] = t
+
+    def _below_floor(self, pid, t):
+        """Is an audio frame at t replayed audio (up to the floor)? The floor is
+        removed once audio past it arrives."""
+        f = self.floor.get(pid)
+        if f is None or t is None:
+            return False
+        if later(t, f):
+            del self.floor[pid]
+            return False
+        return True
+
+    def _picture(self, h, key, at, dts, out):
+        """A complete picture: in normal play remember it; after a reconnect decide
+        whether it's the replay (drop it) or where playback carries on."""
+        if not self.checking or at is None:
+            self._remember_picture(h, dts)
+            return
+        n = self.where.get(h)
+        known = n is not None and n >= self.count - len(self.frames)
+        if self.expect == self.count:               # the replay has caught up: this is new
+            self._carry_on(at, h, dts, self._offset(dts, 1), out, "right after the last picture sent")
+        elif known and self.skipped < MAX_SKIP:     # sent already: part of the replay
+            self.expect, self.skipped = n + 1, self.skipped + 1
+        elif self.expect == self.count - 1:         # the last picture sent was cut short
+            self._carry_on(at, h, dts, self._offset(dts, 0), out, "with the picture the drop cut short")
+        elif key or self.skipped >= MAX_SKIP:
+            how = "at a keyframe (the replay didn't reach back far enough)" if not known \
+                else "after too long a replay (a still image?)"
+            self._carry_on(at, h, dts, None, out, how)
+        else:                                       # new, but can't be decoded from here
             self.skipped += 1
-            self.held = []
-        else:                                      # new picture: carry on from here
-            out.extend(self.held[at:])
-            if self.skipped:
-                self.log(f"skipped a replay ({self.skipped} keyframes)")
-            self.checking, self.held = False, []
-            self.sent.append(h)
+
+    def _offset(self, dts, after):
+        """New clock minus old clock, from the picture playback carries on with: it is
+        the last picture sent (after=0) or the one after it (after=1)."""
+        if dts is None or self.last_dts is None:
+            return None
+        return (dts - self.last_dts - after * self.frame_ticks) % WRAP
+
+    def _carry_on(self, at, h, dts, offset, out, how):
+        if self.count and (self.skipped or "keyframe" in how):
+            self.log(f"after a reconnect: dropped {self.skipped} replayed pictures; carrying on {how}")
+        self._release(at, dts, offset, out)
+        self._remember_picture(h, dts)
+
+    def _release(self, at, dts, offset, out):
+        """Ends the hold: sends the held packets from index `at` on, and held audio
+        that isn't replayed wherever it sits. Replayed audio is what comes up to the
+        last audio sent, moved to the new clock (offset); without an offset, audio
+        starts with the picture at `at` (DTS dts)."""
+        if offset is not None:
+            # A replayed PES with more than half of it after the end of the last one sent
+            # is kept: Dispatcharr's re-encoded audio has other PES boundaries.
+            self.floor = {pid: (t + offset + self.audio_ticks.get(pid, 0) // 2) % WRAP
+                          for pid, t in self.audio_last.items()}
+        elif dts is not None and at:
+            pids = set(self.audio_last) | {a[0] for a in self.held_audio}
+            self.floor = {pid: (dts - 1) % WRAP for pid in pids}
+        else:
+            self.floor = {}
+        drop, by_clock = set(), set(self.floor)
+        for a in self.held_audio:                   # in stream order
+            pid, t, idx = a
+            if pid in by_clock:
+                gone = self._below_floor(pid, t)
+            else:                                   # no clock to go by
+                gone = idx[0] < at
+            if gone:
+                drop.update(idx)
+            else:
+                self._audio_sent(pid, t)
+            if self.audio.get(pid) is a:            # still being read: decides the rest of it
+                self.dropping[pid] = gone
+        for i, pkt in enumerate(self.held):
+            if i in drop:
+                continue
+            if i < at:
+                pid = ts_pid(pkt)
+                if pid == self.video_pid or pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
+                    continue                        # replayed or undecodable pictures
+            out.append(pkt)
+        self.checking, self.held, self.held_audio = False, [], []
+        for a in self.audio.values():
+            a[2] = None
+
+    def _remember_picture(self, h, dts):
+        if dts is not None and self.last_dts is not None:
+            d = (dts - self.last_dts) % WRAP
+            if 0 < d <= 9000:                       # a plausible picture length (10-90 fps)
+                self.frame_ticks = d
+        self.last_dts = dts
+        self.where[h] = self.count
+        self.frames.append(h)
+        self.count += 1
+        if len(self.frames) > SENT_FRAMES:
+            old, number = self.frames.popleft(), self.count - len(self.frames) - 1
+            if self.where.get(old) == number:
+                del self.where[old]
 
     def _pat(self, p):
         if not p or len(p) <= p[0] + 8:
@@ -364,18 +578,150 @@ class ReplaySkipper:
             i += 5 + (((s[i + 3] & 0x0F) << 8) | s[i + 4])
 
 
+# --- Jellyfin: which channels are being played -------------------------------------
+def jellyfin_id(text):
+    """Jellyfin's id for a string: the MD5 of its UTF-16 text, written as a .NET Guid.
+    Its media source id for an M3U channel is this of the channel's stream address."""
+    return uuid.UUID(bytes_le=hashlib.md5(text.encode("utf-16-le")).digest()).hex
+
+
+# Jellyfin's id for an open live stream: these two, then the channel's media source id.
+LIVE_STREAM_PREFIX = (jellyfin_id("Jellyfin.LiveTv.LiveTvMediaSourceProvider") + "_"
+                      + jellyfin_id("Jellyfin.LiveTv.DefaultLiveTvService") + "_")
+
+
+class Jellyfin:
+    AUTH = 'MediaBrowser Client="livetv-proxy", Device="livetv-proxy", DeviceId="livetv-proxy", Version="1.0"'
+
+    def __init__(self):
+        self.token = JELLYFIN_API_KEY or None
+        self.can_login = bool(JELLYFIN_USER) and not JELLYFIN_API_KEY
+
+    @property
+    def usable(self):
+        return bool(self.token or self.can_login)
+
+    def _call(self, method, path, body=None):
+        auth = self.AUTH + (f', Token="{self.token}"' if self.token else "")
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(JELLYFIN_URL + path, data=data, method=method,
+                                     headers={"Authorization": auth, "Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            raw = r.read()
+        return json.loads(raw) if raw else None
+
+    def call(self, method, path):
+        """Signed in (logging in first when there's no key); signs in again once on 401."""
+        for attempt in (1, 2):
+            if not self.token and self.can_login:
+                self.token = self._call("POST", "/Users/AuthenticateByName",
+                                        {"Username": JELLYFIN_USER, "Pw": JELLYFIN_PASSWORD})["AccessToken"]
+            try:
+                return self._call(method, path)
+            except urllib.error.HTTPError as e:
+                if e.code != 401 or not self.can_login or attempt == 2:
+                    raise
+                self.token = None
+
+    def watching(self, known):
+        """(media source ids of the channels being played, None) or, when that can't be
+        told and nothing should be cut, (None, why): Jellyfin is recording, or a channel
+        is being played whose stream can't be identified."""
+        sessions = self.call("GET", "/Sessions")
+        if (self.call("GET", "/LiveTv/Recordings?IsInProgress=true&Limit=1") or {}).get("TotalRecordCount"):
+            return None, "Jellyfin is recording"
+        ids = set()
+        for s in sessions or []:
+            item = s.get("NowPlayingItem")
+            if not item or item.get("Type") != "TvChannel":
+                continue
+            ps = s.get("PlayState") or {}
+            live, source = ps.get("LiveStreamId") or "", ps.get("MediaSourceId") or ""
+            if live.startswith(LIVE_STREAM_PREFIX):     # an M3U channel's open stream
+                ids.add(live[len(LIVE_STREAM_PREFIX):])
+            elif source in known:
+                ids.add(source)
+            else:
+                return None, (f"{s.get('Client', 'a player')} plays a channel without saying "
+                              f"which stream (LiveStreamId {live!r})")
+        return ids, None
+
+    def close(self, source_id):
+        self.call("POST", f"/LiveStreams/Close?liveStreamId={LIVE_STREAM_PREFIX}{source_id}")
+
+
+RELAYS = set()              # streams being relayed
+RELAYS_LOCK = threading.Lock()
+
+
+class Relay:
+    def __init__(self, channel_id, proc, stop):
+        self.channel_id, self.proc, self.stop = channel_id, proc, stop
+        self.source_id = jellyfin_id(proxy_url(channel_id))
+        self.watched_at, self.close_asked, self.cut = time.time(), None, False
+
+    def cut_off(self):
+        self.cut = True
+        self.stop.set()
+        self.proc.kill()            # the player's side sees the end of the stream
+
+
+def watch_viewers():
+    """Every CHECK_EVERY s while a stream runs: a channel nobody has played in Jellyfin
+    for IDLE_AFTER seconds is closed in Jellyfin (it still counts a viewer that's gone)
+    and, if Jellyfin keeps reading anyway, cut here 10 s later."""
+    jf, problem = Jellyfin(), None
+    while True:
+        time.sleep(CHECK_EVERY)
+        with RELAYS_LOCK:
+            relays = list(RELAYS)
+        if not relays:
+            continue
+        try:
+            watching, why = jf.watching({r.source_id for r in relays})
+        except Exception as e:      # Jellyfin restarting, wrong login...: cut nothing
+            watching, why = None, f"can't ask Jellyfin ({e})"
+        if why != problem:
+            print(f"idle check: {why}; leaving streams alone" if why else "idle check: working again",
+                  flush=True)
+            problem = why
+        now = time.time()
+        for r in relays:
+            if watching is None or r.source_id in watching:
+                r.watched_at, r.close_asked = now, None
+            elif now - r.watched_at < IDLE_AFTER:
+                continue
+            elif r.close_asked is None:
+                print(f"stream {r.channel_id}: nobody has played it in Jellyfin for "
+                      f"{int(now - r.watched_at)} s; asking Jellyfin to close it", flush=True)
+                r.close_asked = now
+                try:
+                    jf.close(r.source_id)
+                except Exception as e:
+                    print(f"stream {r.channel_id}: Jellyfin didn't close it ({e})", flush=True)
+            elif now - r.close_asked >= 10:
+                print(f"stream {r.channel_id}: Jellyfin still reading it; cutting it off", flush=True)
+                r.cut_off()
+
+
 # --- /stream/<id> ------------------------------------------------------------------
+class Refused(OSError):
+    pass
+
+
 def feed_ffmpeg(channel_id, proc, stop, state):
     """Reads the channel from Dispatcharr, cuts out replays, and writes it to FFmpeg.
     When Dispatcharr ends the stream (it gave up after its own reconnects), asks for
     the channel again (a fresh provider connection) until RESTART_FOR seconds pass
-    without any new picture (replayed data doesn't count)."""
+    without any new picture (replayed data doesn't count). Gives up sooner when
+    Dispatcharr refuses the channel: at once if it doesn't know it (404), after
+    REFUSED_FOR seconds of 503 (the channel was stopped in Dispatcharr's web UI)."""
     def log(msg):
         print(f"stream {channel_id}: {msg}", flush=True)
 
     skipper = ReplaySkipper(log)
     host = urlsplit(DISPATCHARR)
-    last_data, connections = time.time(), 0
+    last_data, connections, refused_since = time.time(), 0, None
     try:
         while not stop.is_set():
             why = "Dispatcharr ended the stream"
@@ -385,8 +731,12 @@ def feed_ffmpeg(channel_id, proc, stop, state):
                 state["sock"] = conn.sock               # so the player side can cut it
                 conn.request("GET", f"/proxy/ts/stream/{channel_id}")
                 resp = conn.getresponse()
+                if resp.status == 404:
+                    log("Dispatcharr doesn't know this channel (HTTP 404); giving up")
+                    return
                 if resp.status != 200:
-                    raise OSError(f"Dispatcharr answered HTTP {resp.status}")
+                    raise Refused(f"Dispatcharr answered HTTP {resp.status}")
+                refused_since = None
                 connections += 1
                 if connections > 1:
                     log("got the channel from Dispatcharr again")
@@ -399,11 +749,17 @@ def feed_ffmpeg(channel_id, proc, stop, state):
                             proc.stdin.flush()
                         except (BrokenPipeError, OSError):
                             return                      # FFmpeg is gone: player left
+            except Refused as e:
+                why = str(e)
+                refused_since = refused_since or time.time()
             except (OSError, http.client.HTTPException) as e:
                 why = str(e) or e.__class__.__name__
             finally:
                 conn.close()
             if stop.is_set():
+                return
+            if refused_since and time.time() - refused_since >= REFUSED_FOR:
+                log(f"{why} for {REFUSED_FOR} s (stopped in Dispatcharr?); giving up")
                 return
             if time.time() - last_data > RESTART_FOR:
                 log(f"no data for {RESTART_FOR} s, giving up")
@@ -430,6 +786,9 @@ def relay_stream(handler, channel_id):
            "-mpegts_flags", "+resend_headers", "-f", "mpegts", "pipe:1"]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
     stop, state = threading.Event(), {}
+    relay = Relay(channel_id, proc, stop)
+    with RELAYS_LOCK:
+        RELAYS.add(relay)
     threading.Thread(target=feed_ffmpeg, args=(channel_id, proc, stop, state), daemon=True).start()
     handler.send_response(200)
     handler.send_header("Content-Type", "video/mp2t")
@@ -439,9 +798,11 @@ def relay_stream(handler, channel_id):
     try:
         while chunk := proc.stdout.read1(65536):
             handler.wfile.write(chunk)
-    except (BrokenPipeError, ConnectionResetError, TimeoutError):
+    except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, TimeoutError):
         reason = "player disconnected"
     finally:
+        with RELAYS_LOCK:
+            RELAYS.discard(relay)
         stop.set()
         if sock := state.get("sock"):                   # free the provider connection now
             try:
@@ -450,6 +811,8 @@ def relay_stream(handler, channel_id):
                 pass
         proc.kill()
         proc.wait()
+    if relay.cut:
+        reason = "nobody watching in Jellyfin"
     print(f"stream {channel_id}: stopped ({reason})", flush=True)
 
 
@@ -499,6 +862,13 @@ if __name__ == "__main__":
     print(f"livetv-proxy on :{PORT}, source {SOURCE_M3U}, prefixes {PREFIXES}, suffixes {SUFFIXES}", flush=True)
     if TIMESTAMP_FIX:
         print("timestamp fix on: streams go through /stream/<id>", flush=True)
+        if IDLE_AFTER <= 0:
+            print("idle check off (IDLE_AFTER=0)", flush=True)
+        elif not Jellyfin().usable:
+            print("idle check off: no JELLYFIN_API_KEY or JELLYFIN_USER", flush=True)
+        else:
+            print(f"idle check on: channels nobody plays in Jellyfin for {IDLE_AFTER} s are closed", flush=True)
+            threading.Thread(target=watch_viewers, daemon=True).start()
     elif os.environ.get("TIMESTAMP_FIX", "1") == "1":
         print("timestamp fix OFF: ffmpeg not found, streams go straight to Dispatcharr", flush=True)
     else:
