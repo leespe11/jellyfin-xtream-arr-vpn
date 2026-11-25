@@ -11,7 +11,7 @@
   <DisableLiveTvChannelUserDataName>true</DisableLiveTvChannelUserDataName>
   <MetadataPath />
   <PreferredMetadataLanguage>en</PreferredMetadataLanguage>
-  <MetadataCountryCode>CA</MetadataCountryCode>
+  <MetadataCountryCode>{{REGION}}</MetadataCountryCode>
   <SortReplaceCharacters>
     <string>.</string>
     <string>+</string>
@@ -183,7 +183,7 @@
     <string>*</string>
   </CorsHosts>
   <ActivityLogRetentionDays>30</ActivityLogRetentionDays>
-  <LibraryScanFanoutConcurrency>6</LibraryScanFanoutConcurrency>
+  <LibraryScanFanoutConcurrency>0</LibraryScanFanoutConcurrency>
   <LibraryMetadataRefreshConcurrency>0</LibraryMetadataRefreshConcurrency>
   <AllowClientLogUpload>true</AllowClientLogUpload>
   <DummyChapterDuration>0</DummyChapterDuration>

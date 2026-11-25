@@ -3,7 +3,7 @@
     "apiKey": "{{SEERR_API_KEY}}",
     "mediaServerType": 4,
     "discoverRegion": "",
-    "streamingRegion": "CA",
+    "streamingRegion": "{{REGION}}",
     "partialRequestsEnabled": true
   }
 }

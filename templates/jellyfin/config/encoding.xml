@@ -10,9 +10,9 @@
   <ThrottleDelaySeconds>180</ThrottleDelaySeconds>
   <EnableSegmentDeletion>false</EnableSegmentDeletion>
   <SegmentKeepSeconds>720</SegmentKeepSeconds>
-  <HardwareAccelerationType>qsv</HardwareAccelerationType>
+  <HardwareAccelerationType>{{HWACCEL}}</HardwareAccelerationType>
   <EncoderAppPathDisplay>/usr/lib/jellyfin-ffmpeg/ffmpeg</EncoderAppPathDisplay>
-  <VaapiDevice>/dev/dri/renderD128</VaapiDevice>
+  <VaapiDevice>{{RENDER_NODE}}</VaapiDevice>
   <QsvDevice />
   <EnableTonemapping>false</EnableTonemapping>
   <EnableVppTonemapping>true</EnableVppTonemapping>

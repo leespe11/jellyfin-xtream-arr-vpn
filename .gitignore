@@ -1,12 +1,10 @@
 .env
 ws-ephemeral.env
+docker-compose.override.yml
 
 # Container configs, databases and caches (never in git)
 /config/
 /jellyfin/
-
-# Encrypted config backups
-*.age
 
 # Python byte-code
 __pycache__/
