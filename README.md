@@ -45,10 +45,11 @@ settings in `.env`.
 - `livetv-proxy` cleans up channel names and guide titles (strips tags like `US:` or
   `FHD`), sorts the channels (by name, group or Dispatcharr's order, ascending or
   descending) and numbers them 1..N.
-- It also passes streams through FFmpeg so their timestamps only move forward. When the
-  provider drops a stream and Dispatcharr reconnects, the provider replays a few seconds,
-  which makes players freeze, loop the audio or kick you back to the guide; the proxy
-  skips the replayed part instead.
+- It also smooths over the provider's drops. When the provider drops a stream and
+  Dispatcharr reconnects, the provider replays the last ~30 s, which makes players
+  freeze, loop the audio, lose sync or kick you back to the guide; the proxy cuts the
+  replay out, keeps one continuous clock, and plays from a few seconds of cushion
+  (`LIVETV_BUFFER`) so the picture keeps going while Dispatcharr reconnects.
 - `dispatcharr-patch.sh` makes Dispatcharr wait longer between reconnects, since the
   provider refuses new connections for a few seconds after a drop.
 - `livetv-watchdog.sh` moves the VPN to another server when the provider starts refusing

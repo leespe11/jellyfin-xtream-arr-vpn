@@ -12,15 +12,16 @@
              mentions its channel's full original name ("...on US: FAMILY GUY 4K"),
              that is swapped for the cleaned name. Nothing else is changed or added.
 /stream/<id> A channel's video, from Dispatcharr's /proxy/ts/stream/<id>, passed through
-             FFmpeg (video and audio copied, not re-encoded) so its timestamps only ever
-             move forward. When the provider drops a stream, Dispatcharr reconnects, but
-             the provider restarts it a few seconds back in time; Jellyfin keeps the
-             original timestamps (-copyts), so its player freezes or loops the audio.
-             FFmpeg evens out such jumps. Before FFmpeg, the replayed part is cut out:
-             every picture sent is remembered (a hash of its data), and after a
-             reconnect everything is held back while the replay arrives. Pictures
-             already sent are dropped, and playback carries on with the first picture
-             that wasn't sent, so the viewer sees a short pause but misses nothing.
+             FFmpeg (video and audio copied, not re-encoded) on one continuous clock.
+             When the provider drops a stream, Dispatcharr reconnects, but the provider
+             restarts it ~30 s back in time with a clock of its own; Jellyfin keeps the
+             original timestamps (-copyts), so its player would freeze, loop the audio
+             or lose sync. So the replayed part is cut out: every picture sent is
+             remembered (a hash of its data), and after a reconnect everything is held
+             back while the replay arrives. Pictures already sent are dropped, and
+             playback carries on with the first picture that wasn't sent, so nothing is
+             missed or shown twice. A picture or audio packet only goes out once it's
+             whole, so one cut short by a drop is never shown broken.
              Audio is cut by its timestamps instead (Dispatcharr re-encodes it, so a
              replay's audio has other bytes): that picture gives the offset between the
              old and new connection's clocks, audio up to the end of the last audio sent
@@ -685,7 +686,7 @@ class ReplaySkipper:
     def _picture(self, h, key, at, dts, out):
         """A complete picture: in normal play remember it; after a reconnect decide
         whether it's the replay (drop it) or where playback carries on."""
-        if not self.checking or at is None:
+        if not self.checking:
             self._remember_picture(h, dts)
             return
         n = self.where.get(h)
@@ -694,8 +695,6 @@ class ReplaySkipper:
             self._carry_on(at, h, dts, self._offset(dts, 1), out, "right after the last picture sent")
         elif known and self.skipped < MAX_SKIP:     # sent already: part of the replay
             self.expect, self.skipped = n + 1, self.skipped + 1
-        elif self.expect == self.count - 1:         # the last picture sent was cut short
-            self._carry_on(at, h, dts, self._offset(dts, 0), out, "with the picture the drop cut short")
         elif key or self.skipped >= MAX_SKIP:
             how = "at a keyframe (the replay didn't reach back far enough)" if not known \
                 else "after too long a replay (a still image?)"
@@ -1074,8 +1073,9 @@ def feed_ffmpeg(channel_id, proc, stop, state):
 
 def relay_stream(handler, channel_id):
     """Streams the channel to the player through FFmpeg until either side hangs up.
-    No -copyts: for MPEG-TS input FFmpeg shifts the timestamps after any backward
-    jump (and any forward jump over 10 s) so the output keeps counting forward."""
+    The proxy already sends one continuous clock; FFmpeg is the safety net. No -copyts:
+    for MPEG-TS input FFmpeg shifts the timestamps after any backward jump (and any
+    forward jump over 1 s, see -dts_delta_threshold) so the output keeps counting forward."""
     cmd = ["ffmpeg", "-hide_banner", "-nostats", "-loglevel", "warning",
            "-fflags", "+genpts+discardcorrupt",
            "-dts_delta_threshold", "1",                    # close forward gaps over 1 s too (default 10)
