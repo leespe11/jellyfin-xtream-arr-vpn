@@ -1,5 +1,4 @@
 .env
-check-updates.sh
 docker-compose.override.yml
 
 # Container configs, databases and caches (never in git)
