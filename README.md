@@ -19,7 +19,8 @@ machine and link every app together; cron jobs keep it healthy and up to date.
 [Remote access](#remote-access-tailscale) ·
 [Fire TV](#fire-tv-wholphin) ·
 [Several machines](#several-machines-sharing-a-windscribe-account) ·
-[Troubleshooting](#troubleshooting)
+[Troubleshooting](#troubleshooting) ·
+[Credits](#credits)
 
 ---
 
@@ -251,6 +252,10 @@ profile that something uses is kept). Size limits per quality (MB per minute) ar
 **Ultra-HD** profile. Admins always see it; give other users the **Advanced Requests**
 permission (Settings → Users).
 
+**Region and language:** metadata and Seerr's streaming providers are set up for Canada,
+in English, with English subtitles. To change them: Jellyfin → Dashboard → General and each
+library's settings, Seerr → Settings → General, Bazarr → Settings → Languages.
+
 **After changing a setting:**
 - Download settings (profiles, qualities, scores, size limits): `scripts/bootstrap.sh`.
 - Live TV or VPN settings: `docker compose up -d`.
@@ -450,3 +455,38 @@ in `.env` with the provider's config for this machine, then `docker compose up -
 
 **Seerr shows Request on things you already have.** Run Jellyfin's **Scan All
 Libraries**, then Seerr's **Settings → Jellyfin → Start Scan**.
+
+---
+
+## Credits
+
+This repo is glue: scripts and settings that set up and connect other people's work.
+All the real work is theirs; please star and support their projects.
+
+| Project | What it does here |
+|---|---|
+| [Jellyfin](https://github.com/jellyfin/jellyfin) | The media server |
+| [Dispatcharr](https://github.com/Dispatcharr/Dispatcharr) | IPTV provider login, channels, guide, VOD |
+| [Jellyfin Xtream Library](https://github.com/firestaerter3/Jellyfin-Xtream-Library) by firestaerter3 | The provider's movies and series as a Jellyfin library |
+| [Jellyfin Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) by n00bcodr | Seerr requests and extras inside Jellyfin |
+| [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) by n00bcodr | Small tweaks to Jellyfin's web pages |
+| [Intro Skipper](https://github.com/intro-skipper/intro-skipper) | Skip intros and credits |
+| [Wholphin](https://github.com/damontecres/Wholphin) by damontecres | Fire TV / Android TV app and its Jellyfin plugin |
+| [Seerr](https://github.com/seerr-team/seerr) | Requests and discovery |
+| [Sonarr](https://github.com/Sonarr/Sonarr), [Radarr](https://github.com/Radarr/Radarr), [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Series, movies, indexers |
+| [Bazarr](https://github.com/morpheus65535/bazarr) | Subtitles |
+| [qBittorrent](https://github.com/qbittorrent/qBittorrent) | Torrents |
+| [gluetun](https://github.com/qdm12/gluetun) by qdm12 | The VPN container |
+| [Tailscale](https://github.com/tailscale/tailscale) | Remote access |
+| [LinuxServer.io](https://www.linuxserver.io/) | The qBittorrent, Sonarr, Radarr, Prowlarr and Bazarr images |
+| [ImageMagick](https://imagemagick.org/), [jq](https://jqlang.org/), [FFmpeg](https://ffmpeg.org/) | Artwork shrinking, JSON in the scripts, the Live TV stream fix |
+
+Each project keeps its own license. This repo doesn't include their code: the containers
+come from their own images, and the plugins install from their authors' repositories.
+`seerr-patch.sh` and `dispatcharr-patch.sh` change a few lines of Seerr and Dispatcharr
+when their containers start, on your machine only. This repo's own scripts are under the
+[MIT license](LICENSE).
+
+**Use it legally.** This stack doesn't provide any content. Use an IPTV provider that
+has the rights to what it streams, and download only what you're allowed to; a VPN
+doesn't change what's legal where you live.
