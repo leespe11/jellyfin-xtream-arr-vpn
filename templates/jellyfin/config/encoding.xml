@@ -13,7 +13,7 @@
   <HardwareAccelerationType>{{HWACCEL}}</HardwareAccelerationType>
   <EncoderAppPathDisplay>/usr/lib/jellyfin-ffmpeg/ffmpeg</EncoderAppPathDisplay>
   <VaapiDevice>{{RENDER_NODE}}</VaapiDevice>
-  <QsvDevice />
+  <QsvDevice>{{QSV_DEVICE:-}}</QsvDevice>
   <EnableTonemapping>false</EnableTonemapping>
   <EnableVppTonemapping>true</EnableVppTonemapping>
   <EnableVideoToolboxTonemapping>false</EnableVideoToolboxTonemapping>
