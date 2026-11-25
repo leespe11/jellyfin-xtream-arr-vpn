@@ -1,6 +1,6 @@
 services:
   gluetun:
-    image: qmcgaw/gluetun@sha256:4af0c804003481e100180e1f8d4d5e9c48163fedc0f88d061881b615aef9d183
+    image: qmcgaw/gluetun@sha256:50be46c817ed87e5fc3ac76fa3589515b2ab6d08add421d16119beb75b973aa5
     container_name: gluetun
     cap_add:
       - NET_ADMIN
@@ -26,7 +26,7 @@ services:
     restart: unless-stopped
 
   qbittorrent:
-    image: lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls486
+    image: lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls487
     container_name: qbittorrent
     network_mode: service:gluetun     # all traffic goes through the VPN
     depends_on:
@@ -48,7 +48,7 @@ services:
     restart: unless-stopped
 
   prowlarr:
-    image: lscr.io/linuxserver/prowlarr:2.7.0.5723-ls166
+    image: lscr.io/linuxserver/prowlarr:3.0.2.5780-ls169
     container_name: prowlarr
     environment:
       - PUID=${PUID}
@@ -61,7 +61,7 @@ services:
     restart: unless-stopped
 
   radarr:
-    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls325
+    image: lscr.io/linuxserver/radarr:7.0.3.10918-ls328
     container_name: radarr
     environment:
       - PUID=${PUID}
@@ -75,7 +75,7 @@ services:
     restart: unless-stopped
 
   sonarr:
-    image: lscr.io/linuxserver/sonarr:4.0.20.3014-ls2
+    image: lscr.io/linuxserver/sonarr:4.0.20.3014-ls5
     container_name: sonarr
     environment:
       - PUID=${PUID}
@@ -89,7 +89,7 @@ services:
     restart: unless-stopped
 
   bazarr:
-    image: lscr.io/linuxserver/bazarr:v1.6.2-ls371
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls373
     container_name: bazarr
     environment:
       - PUID=${PUID}
@@ -171,7 +171,7 @@ services:
 # ~4.5-minute disconnects (which Wholphin can't recover from), and serves the channel
 # list and guide that livetv-proxy tidies. Web UI on port 9191 (published by gluetun).
   dispatcharr:
-    image: ghcr.io/dispatcharr/dispatcharr:0.33.0
+    image: ghcr.io/dispatcharr/dispatcharr:0.34.1
     container_name: dispatcharr
     restart: unless-stopped
     network_mode: "service:gluetun"
@@ -198,7 +198,7 @@ services:
 # First start: open the login link from `docker logs tailscale`. The login is saved
 # in config/tailscale after that.
   tailscale:
-    image: tailscale/tailscale:v1.104.4
+    image: tailscale/tailscale:v1.104.7
     container_name: tailscale
     network_mode: host
     cap_add:
