@@ -187,7 +187,6 @@ if ! wait_for "$JF/System/Info/Public" 600; then
 else
   if [ "$(curl -fsS "$JF/System/Info/Public" | jq -r .StartupWizardCompleted)" != true ]; then
     # The first-run wizard, done through its API: language, admin user, finish.
-    # (The wizard also sets the server name: without one Jellyfin shows its container's id.)
     jf POST /Startup/Configuration "$(jq -n --arg n "$SERVER_NAME" '{ServerName: $n, UICulture: "en-US",
          MetadataCountryCode: "CA", PreferredMetadataLanguage: "en"}')" >/dev/null \
       && jf GET /Startup/User >/dev/null \
@@ -200,10 +199,10 @@ else
     problem "Jellyfin login as $(env_val JELLYFIN_ADMIN_USER) failed (check JELLYFIN_ADMIN_* in .env)"
   else
     JELLYFIN_OK=true
-    # A server that went through the wizard before it set the name.
+    # Without a server name Jellyfin shows its container's id.
     cfg=$(jf GET /System/Configuration)
     if [ -n "$cfg" ] && [ -z "$(jq -r '.ServerName // empty' <<<"$cfg")" ]; then
-      jq --arg n "$SERVER_NAME" '.ServerName = $n' <<<"$cfg" | jf POST /System/Configuration @- >/dev/null         && say "server name set to $SERVER_NAME" || problem "could not set Jellyfin's server name"
+      jq --arg n "$SERVER_NAME" '.ServerName = $n' <<<"$cfg" | jf POST /System/Configuration @- >/dev/null || problem "could not set Jellyfin's server name"
     fi
     # Plugin repositories: Jellyfin replaces the list with only its own on a fresh
     # install, so the ones in templates/jellyfin/repositories.json are added here.
@@ -436,8 +435,7 @@ else
     [ -z "$pid" ] || want=$(jq --argjson id "$pid" '.activeProfileId = $id' <<<"$want")
     seerr POST "/settings/$app" "$want" >/dev/null && say "linked $app" || problem "seerr: could not link $app"
   done
-  # New downloads show as available within a minute of Jellyfin adding them (default: 5).
-  seerr POST /settings/jobs/jellyfin-recently-added-scan/schedule '{"schedule":"0 * * * * *"}' >/dev/null     && say "recently-added scan every minute" || problem "seerr: could not set the recently-added scan schedule"
+  seerr POST /settings/jobs/jellyfin-recently-added-scan/schedule '{"schedule":"0 * * * * *"}' >/dev/null || problem "seerr: could not set the recently-added scan schedule"
   seerr POST /settings/jobs/jellyfin-full-scan/schedule '{"schedule":"0 0 6 * * *"}' >/dev/null \
     && say "full library scan every day at 6:00" || problem "seerr: could not set the scan schedule"
   seerr POST /settings/initialize >/dev/null || problem "seerr: could not finish setup"

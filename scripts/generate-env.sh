@@ -127,19 +127,47 @@ once PGID "$( [ -n "$owner" ] && id -g "$owner" || echo 1000)"
 [ "$(env_val PUID)" != 0 ] || echo "  note: PUID in .env is 0, so the media files will belong to root"
 
 # ---- VPN ---------------------------------------------------------------------------------
-ask_once VPN_SERVICE_PROVIDER "VPN provider, as gluetun names it (windscribe, protonvpn, mullvad, airvpn...)" windscribe
-provider=$(env_val VPN_SERVICE_PROVIDER)
-explain WIREGUARD_PRIVATE_KEY <<'EOF'
-The next answers come from a WireGuard config made for THIS machine (on Windscribe:
-the WireGuard config generator). Every machine needs its own: two machines on one
-config knock each other offline. Pasting the whole line ("PrivateKey = ...") is fine.
-EOF
 # What each provider needs, per gluetun's wiki (setup/providers):
-#   windscribe, airvpn  private key, address, preshared key; servers by region; the
-#                       forwarded port comes from your account
-#   protonvpn           private key only; servers by country or region
-#   mullvad             private key and address; servers by country; no port forwarding
+#   protonvpn  private key only; servers by country or region; its forwarded port changes
+#              all the time and isn't followed here, so none is set
+#   airvpn     private key, address, preshared key; servers by region; forwarded ports are
+#              made on AirVPN's site and stay the same
+#   mullvad    private key and address; servers by country; no port forwarding
+#   windscribe like airvpn; Pro accounts without a static IP get a 7-day port that the
+#              nightly job can renew (port-sync.sh)
 # Any other provider: everything is asked; what isn't needed can be left empty.
+ask VPN_SERVICE_PROVIDER "VPN provider, as gluetun names it (protonvpn, airvpn, mullvad, windscribe...)"
+provider=$(env_val VPN_SERVICE_PROVIDER)
+
+if [ "$provider" = windscribe ]; then
+  explain PORT_REFRESH <<'EOF'
+Windscribe Pro forwards one port to qBittorrent. Without a static IP it's an "ephemeral"
+port that expires after 7 days; the nightly job can renew it, which needs your Windscribe
+login. With a static IP the port is permanent and nothing needs renewing.
+EOF
+  ask_once PORT_REFRESH "Renew the forwarded port every week? (yes/no)" yes "" yesno
+else
+  once PORT_REFRESH no
+fi
+if [ "$(env_val PORT_REFRESH)" = yes ]; then
+  explain ROLE <<'EOF'
+Machines on one Windscribe account share the forwarded port. One of them renews it
+(primary); the others follow it (secondary). With one machine, it's the primary.
+EOF
+  ask_once ROLE "This machine's role (primary/secondary)" primary "" role
+  ask WS_USERNAME "Windscribe username"
+  ask WS_PASSWORD "Windscribe password" secret
+  # The 2FA secret (the key shown when 2FA was set up), so the renewal can sign in by itself.
+  ask_once WS_TOTP "Windscribe 2FA secret key (only if your account has 2FA turned on, not the 6-digit code; otherwise press Enter)" "" secret totp
+else
+  once ROLE primary; once WS_USERNAME ""; once WS_PASSWORD ""; once WS_TOTP ""
+fi
+
+explain WIREGUARD_PRIVATE_KEY <<'EOF'
+The next answers come from a WireGuard config made for THIS machine on your VPN
+provider's site. Every machine needs its own: two machines on one config knock each other
+offline. Pasting the whole line ("PrivateKey = ...") is fine.
+EOF
 ask WIREGUARD_PRIVATE_KEY "WireGuard private key (PrivateKey)" secret wgkey
 case $provider in
   protonvpn) once WIREGUARD_ADDRESSES "" ;;                  # gluetun knows it
@@ -166,38 +194,16 @@ case $provider in
     ask_once VPN_SERVER_REGIONS "VPN server regions, comma-separated, as your provider names them (Enter for any server)" ;;
 esac
 
-# ---- Port forwarding -------------------------------------------------------------------
-if [ "$provider" = windscribe ]; then
-  explain PORT_REFRESH <<'EOF'
-Windscribe forwards one port to qBittorrent. Without a static IP it's an "ephemeral"
-port that expires after 7 days; the nightly job can renew it, which needs your
-Windscribe login. With a static IP the port is permanent and nothing needs renewing.
-EOF
-  ask_once PORT_REFRESH "Renew the forwarded port every week? (yes/no)" yes "" yesno
-else
-  once PORT_REFRESH no                     # only Windscribe's ports get renewed
-fi
-if [ "$(env_val PORT_REFRESH)" = yes ]; then
-  explain ROLE <<'EOF'
-Machines on one Windscribe account share the forwarded port. One of them renews it
-(primary); the others follow it (secondary). With one machine, it's the primary.
-EOF
-  ask_once ROLE "This machine's role (primary/secondary)" primary "" role
-  ask WS_USERNAME "Windscribe username"
-  ask WS_PASSWORD "Windscribe password" secret
-  # The 2FA secret (the key shown when 2FA was set up, not a 6-digit code), so the
-  # renewal can sign in by itself.
-  ask_once WS_TOTP "Windscribe 2FA secret key (only if your account has 2FA turned on, not the 6-digit code; otherwise press Enter)" "" secret totp
-else
-  once ROLE primary
-fi
+# The port forwarded to qBittorrent (torrents work without one, they just reach fewer peers).
 case $provider in
-  mullvad)    # no port forwarding: torrents still work, they just reach fewer peers
-    once TORRENT_PORT "" ;;
-  protonvpn)  # ProtonVPN hands out a random port that changes; this stack doesn't follow it yet
-    ask_once TORRENT_PORT "Forwarded port for qBittorrent (Enter for none; ProtonVPN's changes, so usually none)" "" "" port ;;
-  *)
-    ask TORRENT_PORT "Port your VPN forwards to qBittorrent (your VPN account's port forwarding page)" "" port ;;
+  protonvpn|mullvad) once TORRENT_PORT "" ;;
+  windscribe)
+    if [ "$(env_val PORT_REFRESH)" = yes ]; then
+      ask_once TORRENT_PORT "Your current forwarded port (Enter if you have none yet: the nightly renewal makes one)" "" "" port
+    else
+      ask TORRENT_PORT "Your static IP's forwarded port (Windscribe's port forwarding page)" "" port
+    fi ;;
+  *) ask_once TORRENT_PORT "Port your VPN forwards to qBittorrent (Enter for none)" "" "" port ;;
 esac
 
 # ---- Folders -------------------------------------------------------------------------------

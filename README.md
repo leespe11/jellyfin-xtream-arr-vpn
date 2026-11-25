@@ -18,7 +18,7 @@ machine and link every app together; cron jobs keep it healthy and up to date.
 [Artwork size](#jellyfin-artwork-size) ·
 [Remote access](#remote-access-tailscale) ·
 [Clients](#recommended-clients) ·
-[Several machines](#several-machines-sharing-a-windscribe-account) ·
+[Windscribe extras](#windscribe-extras) ·
 [Troubleshooting](#troubleshooting) ·
 [Credits](#credits)
 
@@ -62,7 +62,7 @@ they don't show a Request button for things you already have.
 **A VPN that fixes itself.** Any WireGuard provider gluetun supports. `vpn-reconnect.sh`
 moves to another server without restarting any container; `qbit-watchdog.sh` does it when
 a server blocks torrent traffic, `livetv-watchdog.sh` when the IPTV provider blocks it.
-With Windscribe, `port-sync.sh` renews the forwarded port every week.
+Extra for Windscribe Pro without a static IP: the 7-day forwarded port renews itself.
 
 **Maintenance on autopilot.** Every night: OS updates, container updates (only when a
 tag in `docker-compose.yml` changes), drive health, disk space, container checks, a
@@ -118,9 +118,18 @@ jellyfin-xtream-arr-vpn/      the stack folder (this repo)
 ## Requirements
 
 - **Ubuntu or Debian**, with your media drive mounted (e.g. at `/mnt/storage`).
-- **A VPN with WireGuard** that gluetun supports. Port forwarding (Windscribe, ProtonVPN,
-  AirVPN) makes torrents much faster; Mullvad has none. Get a WireGuard config for this
-  machine from the provider's website first; `generate-env.sh` asks for its values.
+- **A VPN with WireGuard** that gluetun supports. Make a WireGuard config for this machine
+  on the provider's website first; `generate-env.sh` asks for its values:
+
+  | Provider | Asked for | Forwarded port |
+  |---|---|---|
+  | ProtonVPN | private key; server countries | none set (Proton's port keeps changing) |
+  | AirVPN | private key, address, preshared key; server regions | optional: one you made on AirVPN's site |
+  | Mullvad | private key, address; server countries | none (Mullvad has no port forwarding) |
+  | Windscribe | private key, address, preshared key; server regions | your static port, or renewed every week ([Windscribe extras](#windscribe-extras)) |
+  | any other | everything, with empty allowed | optional |
+
+  A forwarded port only makes torrents reach more peers; everything works without one.
 - **An IPTV provider with Xtream Codes access**, for Live TV and the provider's movies.
 - **A torrent indexer** for Prowlarr.
 
@@ -158,11 +167,11 @@ It asks only for what's still empty, so you can run it again any time:
 | Question | Notes |
 |---|---|
 | Timezone | Defaults to the machine's |
-| VPN provider | `windscribe`, `protonvpn`, `airvpn`, `mullvad`, ... |
-| WireGuard private key, address, preshared key | From the provider's WireGuard config for this machine; which ones depends on the provider |
+| VPN provider | `protonvpn`, `airvpn`, `mullvad`, `windscribe`, ... (gluetun's names) |
+| Windscribe only: port renewal | Explained first; only if yes: this machine's role, your Windscribe login and 2FA secret |
+| WireGuard private key, address, preshared key | From the provider's WireGuard config for this machine; only the ones your provider uses |
 | Server regions / countries | Empty = any server |
-| Windscribe port renewal | Explained first; only if yes: your Windscribe login and 2FA secret |
-| Forwarded port | The port your provider forwards to you |
+| Forwarded port | Only for providers that forward one (see [Requirements](#requirements)) |
 | Media folder | Default `/mnt/storage`, on your big drive |
 | Movies, series and downloads folder names | Folders inside the media folder (defaults `Movies`, `Series`, `torrents`), so downloads are hard-linked, not copied; created if missing |
 | Jellyfin artwork and STRM folder | Tens of GB. Enter keeps them in `./config/jellyfin`; give a folder on the big drive if the system drive is small |
@@ -246,8 +255,8 @@ All in `.env`; `.env.example` explains each one. The ones you're most likely to 
 | `LIVETV_SORT_BY` | `name` | `name`, `group` or `dispatcharr` |
 | `LIVETV_SORT_ORDER` | `asc` | `asc` or `desc` |
 | `LIVETV_STRIP_PREFIXES` / `_SUFFIXES` | provider tags | Removed from channel names and guide titles |
-| `VPN_SERVICE_PROVIDER` | `windscribe` | Any gluetun WireGuard provider |
-| `PORT_REFRESH` | `yes` | Windscribe only: renew the 7-day forwarded port; `no` for a permanent one |
+| `VPN_SERVICE_PROVIDER` | asked | Any gluetun WireGuard provider |
+| `PORT_REFRESH` | `no` | Windscribe only: `yes` renews the 7-day forwarded port ([Windscribe extras](#windscribe-extras)) |
 | `DISCORD_WEBHOOK` | | Channel → Edit Channel → Integrations → Webhooks; `DISCORD_NOTIFY=failures` for problems only |
 
 Sonarr and Radarr keep only these profiles: their other built-in ones are removed (a
@@ -282,8 +291,8 @@ working setup; `{{NAME}}` in a template is filled in from `.env`.
 Five cron jobs, which `bootstrap.sh` installs in root's crontab:
 
 **`nightly.sh`**, at 04:00:
-1. `port-sync.sh` (Windscribe with `PORT_REFRESH=yes` only, see
-   [Several machines](#several-machines-sharing-a-windscribe-account)).
+1. `port-sync.sh`, only with Windscribe port renewal on (see
+   [Windscribe extras](#windscribe-extras)).
 2. Host settings: timezone and NTP from `TZ`, container log limits (3 x 10 MB), a
    500 MB journal cap, no sleep/suspend, log rotation.
 3. OS updates (`apt full-upgrade`).
@@ -441,7 +450,14 @@ freed. To redo every image (after changing the limits): `scripts/shrink-images.s
 
 ---
 
-## Several machines sharing a Windscribe account
+## Windscribe extras
+
+Windscribe Pro forwards one port. With a static IP it's permanent: answer `no` to the
+renewal question and give the port. Without one it's an "ephemeral" port that expires
+after 7 days: answer `yes`, and the nightly job (`port-sync.sh`) renews it about every 6
+days, puts it in qBittorrent and gluetun, and updates `TORRENT_PORT`. It signs in with
+your Windscribe login (and your 2FA secret key, if 2FA is on). If you don't have a port
+yet, leave it empty during setup: the first renewal makes one.
 
 Machines on one Windscribe account share one forwarded port:
 - Give each machine its own WireGuard config and a different `VPN_SERVER_REGIONS`.
