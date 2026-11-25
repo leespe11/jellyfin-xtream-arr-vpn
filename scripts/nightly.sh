@@ -6,7 +6,7 @@
 #   3. OS updates (apt full-upgrade)
 #   4. git pull, docker compose up -d (new tags only), remove unused images; then,
 #      unless rebooting, after-boot.sh reattaches anything cut off from gluetun;
-#      then shrink-images.sh shrinks the artwork Jellyfin downloaded since last night
+#      then the result of this morning's shrink-images.sh (its own 06:00 cron job)
 #   5. health: SMART drive status, disk space, containers; SSD TRIM on Sundays
 #   6. report to Discord (DISCORD_WEBHOOK in .env)
 #   7. reboot, only with --reboot (which the cron line passes) and only when the
@@ -60,7 +60,7 @@ main() {
   systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target >/dev/null 2>&1
   # This job does the apt updates; stop Ubuntu's own updater competing for the lock.
   systemctl disable --now apt-daily.timer apt-daily-upgrade.timer >/dev/null 2>&1
-  printf '/var/log/nightly.log /var/log/port-sync.log {\n  monthly\n  rotate 6\n  compress\n  missingok\n  notifempty\n}\n' \
+  printf '/var/log/nightly.log /var/log/port-sync.log /var/log/shrink-images.log {\n  monthly\n  rotate 6\n  compress\n  missingok\n  notifempty\n}\n' \
     > /etc/logrotate.d/media-stack
 
   # ------------------------------------------------------------------
@@ -106,13 +106,14 @@ main() {
 
   # ------------------------------------------------------------------
   step "Shrink Jellyfin artwork"
-  # Only what Jellyfin downloaded since the last run (see scripts/shrink-images.sh).
-  local shrink
-  if shrink=$(scripts/shrink-images.sh --nightly 2>&1); then
-    echo "$shrink"; shrink=$(tail -n1 <<<"$shrink")
-    [[ $shrink == "shrank 0 images"* || $shrink == "no Jellyfin"* ]] || change "artwork: $shrink"
+  # shrink-images.sh runs on its own at 06:00 (a first run can take hours); this reports
+  # its last result, once.
+  local result=config/jellyfin/.shrink-images-result shrink
+  if [ -s "$result" ]; then
+    shrink=$(cat "$result"); echo "$shrink"; rm -f "$result"
+    [[ $shrink == "shrank 0 images"* ]] || change "artwork: $shrink"
   else
-    echo "$shrink"; problem "shrink-images.sh: $(tail -n1 <<<"$shrink")"
+    echo "nothing new to report"
   fi
 
   # ------------------------------------------------------------------

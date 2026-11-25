@@ -9,7 +9,7 @@
 #   Prowlarr       login, Sonarr and Radarr
 #   Bazarr         settings, Sonarr/Radarr/Jellyfin links, English profile
 #   Seerr          admin (your Jellyfin admin), libraries, Radarr/Sonarr, 6 am full scan
-#   cron           the nightly job, after-boot and the two watchdogs
+#   cron           the nightly job, artwork shrinking, after-boot and the two watchdogs
 # Safe to run again: settings files are only created when missing (an app's own file is
 # never overwritten), API steps skip what's already there, and existing logins are left
 # alone. Your accounts stay manual: the Prowlarr indexer, Dispatcharr's IPTV provider.
@@ -439,16 +439,17 @@ fi
 
 # ---------------------------------------------------------------------------------
 step "Cron jobs"
-# The four jobs README's Maintenance section describes, in root's crontab. Earlier lines
+# The jobs README's Maintenance section describes, in root's crontab. Earlier lines
 # for these scripts are replaced; other cron jobs are kept. A secondary machine sharing
 # a Windscribe port runs its nightly job at 04:05, after the primary renewed the port.
-JOBS='port-sync.sh|nightly.sh|after-boot.sh|qbit-watchdog.sh|livetv-watchdog.sh'
+JOBS='port-sync.sh|nightly.sh|after-boot.sh|qbit-watchdog.sh|livetv-watchdog.sh|shrink-images.sh'
 minute=0
 [ "$(env_val PORT_REFRESH)" = yes ] && [ "$(env_val ROLE)" = secondary ] && minute=5
 want="$minute 4 * * * $PWD/scripts/nightly.sh --reboot >> /var/log/nightly.log 2>&1
 @reboot $PWD/scripts/after-boot.sh >> /var/log/nightly.log 2>&1
 */5 * * * * $PWD/scripts/qbit-watchdog.sh >> /var/log/nightly.log 2>&1
-* * * * * $PWD/scripts/livetv-watchdog.sh >> /var/log/nightly.log 2>&1"
+* * * * * $PWD/scripts/livetv-watchdog.sh >> /var/log/nightly.log 2>&1
+0 6 * * * $PWD/scripts/shrink-images.sh >> /var/log/shrink-images.log 2>&1"
 if ! command -v crontab >/dev/null; then
   problem "crontab isn't installed (apt install cron; systemctl enable --now cron)"
 else
@@ -456,7 +457,7 @@ else
   if [ "$(grep -E "$JOBS" <<<"$have")" = "$want" ]; then
     say "already installed"
   elif { grep -vE "$JOBS" <<<"$have" | grep -v '^$'; printf '%s\n' "$want"; } | crontab -; then
-    say "installed: nightly at 04:0$minute, after-boot, qBittorrent and Live TV watchdogs"
+    say "installed: nightly at 04:0$minute, artwork shrinking at 06:00, after-boot, qBittorrent and Live TV watchdogs"
   else
     problem "could not install the cron jobs"
   fi
