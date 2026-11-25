@@ -434,6 +434,8 @@ class ReplaySkipper:
         self.shift = 0                      # input clock minus output clock (ticks)
         self.out_dts = None                 # output time of the first picture in feed()'s result
         self.cc = {}                        # PID -> continuity counter of the next packet sent
+        self.clock_from = 0                 # held packets before this are from a dead attempt
+        self.video_out = None               # output time of the last picture sent
 
     def new_connection(self):
         """The picture being read when the old connection ended went out, whole or cut
@@ -462,8 +464,13 @@ class ReplaySkipper:
 
     def _start_check(self):
         if self.checking:
+            # Another reconnect before the replay caught up: the provider attempt held so
+            # far is gone, and the next one has its own clock. Its held audio can't be
+            # lined up with this one's pictures, so it goes (its pictures are matched
+            # by their data and are dropped as usual).
+            self.clock_from = len(self.held)
             return
-        self.checking, self.held = True, []
+        self.checking, self.held, self.clock_from = True, [], 0
         self.expect, self.skipped = None, 0
         if self.video:
             self.video[1] = None            # begun before the hold: part of it went out already
@@ -545,8 +552,10 @@ class ReplaySkipper:
             n = (self.cc.get(pid, (pkt[3] + 1) & 15) - 1) & 15
         if pkt[3] & 15 != n:
             pkt = pkt[:3] + bytes([(pkt[3] & 0xF0) | n]) + pkt[4:]
-        if self.out_dts is None and pkt[1] & 0x40 and pid == self.video_pid:
-            self.out_dts = pes_time(ts_payload(pkt))
+        if pkt[1] & 0x40 and pid == self.video_pid:
+            self.video_out = pes_time(ts_payload(pkt))
+            if self.out_dts is None:
+                self.out_dts = self.video_out
         out.append(pkt)
 
     def _audio(self, pid, pkt, start, out):
@@ -584,6 +593,11 @@ class ReplaySkipper:
                 a["last_t"] = t
             hl = 9 + payload[8] if len(payload) >= 9 and payload[:3] == b"\x00\x00\x01" else 0
             sent = a["decide"] is None
+            if sent and t is not None and self.video_out is not None:
+                off = ticks_between(self.video_out, (t - a["shift"]) % WRAP)
+                if abs(off) > 450000:               # over 5 s from the picture: a bug, not muxing
+                    self.log(f"audio was {off / 90000:+.0f} s off the picture; put back in step")
+                    a["shift"] = self.shift
             a["cur"] = {"t": t, "head": payload[:hl], "data": bytearray(payload[hl:]), "pkts": [],
                         "sent": sent, "out_t": None if t is None or not sent else (t - a["shift"]) % WRAP}
             if sent:
@@ -719,7 +733,7 @@ class ReplaySkipper:
             if pid in psi or pid == self.video_pid:
                 if i >= at:                         # earlier: replayed or undecodable pictures
                     self._send(pkt, out)
-            else:
+            elif i >= self.clock_from:              # earlier: audio of a provider attempt that died
                 self._audio_out(pid, pkt, bool(pkt[1] & 0x40), out)
 
     def _remember_picture(self, h, dts):
