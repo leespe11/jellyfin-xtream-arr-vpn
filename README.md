@@ -139,13 +139,15 @@ jellyfin-xtream-arr-vpn/      the stack folder (this repo)
 
 Every command runs **as root** from the **stack folder** (where the repo is cloned).
 
-### 1. Install the packages
+### 1. Install git
 
 ```bash
 sudo -i
-apt install -y docker.io docker-compose-v2 git jq curl nano cron smartmontools openssh-server imagemagick python3
-systemctl enable --now cron
+apt install -y git
 ```
+
+`bootstrap.sh` (step 4) installs everything else it needs when it's missing: Docker and
+Compose, jq, curl, Python, ImageMagick, smartmontools, cron and logrotate.
 
 ### 2. Clone
 
