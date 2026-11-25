@@ -52,8 +52,8 @@ NF -</CustomTitleRemoveTerms>
       <GroupMoviesByTmdbId>true</GroupMoviesByTmdbId>
       <EnableDispatcharrMode>true</EnableDispatcharrMode>
       <DispatcharrBaseUrl>http://localhost:9191</DispatcharrBaseUrl>
-      <DispatcharrApiUser>{{ADMIN_USER}}</DispatcharrApiUser>
-      <DispatcharrApiPass>{{ADMIN_PASSWORD}}</DispatcharrApiPass>
+      <DispatcharrApiUser>{{DISPATCHARR_ADMIN_USER}}</DispatcharrApiUser>
+      <DispatcharrApiPass>{{DISPATCHARR_ADMIN_PASSWORD}}</DispatcharrApiPass>
       <EnableIncrementalSync>true</EnableIncrementalSync>
       <FullSyncIntervalDays>7</FullSyncIntervalDays>
       <CleanupOrphans>true</CleanupOrphans>
