@@ -269,7 +269,7 @@ profile that something uses is kept). Size limits per quality (MB per minute) ar
 **Ultra-HD** profile. Admins always see it; give other users the **Advanced Requests**
 permission (Settings → Users).
 
-**Region and language:** metadata and Seerr's streaming providers use the country of your
+**Region and language:** metadata and Seerr's discover and streaming regions use the country of your
 `TZ` (e.g. `America/Toronto` → Canada), in English, with English subtitles. To change them:
 Jellyfin → Dashboard → General and each library's settings, Seerr → Settings → General,
 Bazarr → Settings → Languages.
