@@ -24,8 +24,16 @@
              Audio is cut by its timestamps instead (Dispatcharr re-encodes it, so a
              replay's audio has other bytes): that picture gives the offset between the
              old and new connection's clocks, and audio up to the end of the last audio
-             sent is dropped, which keeps sound and picture in sync. Only when the provider's replay doesn't reach back far enough
-             (a real gap) does it carry on from the next keyframe instead. If
+             sent is dropped, which keeps sound and picture in sync. Only when the
+             provider's replay doesn't reach back far enough (a real gap) does it carry
+             on from the next keyframe instead. The proxy then moves the new
+             connection's timestamps to follow on from the last picture sent, so FFmpeg
+             never sees a jump.
+             The channel goes on to FFmpeg at playback speed, with a cushion of whatever
+             arrived early: the provider sends its last ~30 s at once on every
+             (re)connect, so the cushion fills at once, and the player plays on from it
+             while Dispatcharr reconnects instead of waiting. Playback starts once
+             BUFFER seconds are queued (at once with such a burst). If
              Dispatcharr gives up on the channel, it's asked for it again (a fresh
              provider connection) for up to RESTART_FOR seconds while the player waits;
              if Dispatcharr keeps refusing it (stopped in its web UI) for REFUSED_FOR
@@ -54,6 +62,8 @@ Environment:
                   group, then name; dispatcharr: keep Dispatcharr's own channel order
   SORT_ORDER      asc (default) or desc
   TIMESTAMP_FIX   1 (default) to send streams through /stream/<id>, 0 for straight to Dispatcharr
+  BUFFER          seconds of cushion to build before a channel starts playing (default 8;
+                  0 = no cushion, send everything as it arrives)
   RESTART_FOR     seconds to keep asking Dispatcharr for a channel it gave up on (default 60)
   REFUSED_FOR     seconds of Dispatcharr refusing a channel (HTTP 503) before giving up (default 10)
   IDLE_AFTER      seconds a channel nobody is playing in Jellyfin stays open (default 20; 0 = off)
@@ -94,6 +104,7 @@ RESTART_FOR = int(os.environ.get("RESTART_FOR", "60"))
 REFUSED_FOR = int(os.environ.get("REFUSED_FOR", "10"))
 IDLE_AFTER = int(os.environ.get("IDLE_AFTER", "20"))
 CHECK_EVERY = max(1, int(os.environ.get("CHECK_EVERY", "5")))
+BUFFER = max(0.0, float(os.environ.get("BUFFER", "8") or 0))
 JELLYFIN_URL = os.environ.get("JELLYFIN_URL", "http://localhost:8096").rstrip("/")
 JELLYFIN_API_KEY = os.environ.get("JELLYFIN_API_KEY", "").strip()
 JELLYFIN_USER = os.environ.get("JELLYFIN_USER", "").strip()
@@ -288,6 +299,49 @@ def later(a, b):
     return 0 < d < WRAP // 2
 
 
+def ticks_between(a, b):
+    """b - a in 90 kHz ticks, negative when b is before a (allowing for the wrap-around)."""
+    d = (b - a) % WRAP
+    return d - WRAP if d >= WRAP // 2 else d
+
+
+NO_PES_HEADER = {0xBC, 0xBE, 0xBF, 0xF0, 0xF1, 0xF2, 0xF8, 0xFF}   # PES stream ids without timestamps
+
+
+def _shift_time(b, o, shift):
+    t = ((b[o] >> 1) & 7) << 30 | b[o + 1] << 22 | (b[o + 2] >> 1) << 15 | b[o + 3] << 7 | b[o + 4] >> 1
+    t = (t - shift) % WRAP
+    b[o] = (b[o] & 0xF0) | ((t >> 29) & 0x0E) | 1
+    b[o + 1] = (t >> 22) & 0xFF
+    b[o + 2] = ((t >> 14) & 0xFE) | 1
+    b[o + 3] = (t >> 7) & 0xFF
+    b[o + 4] = ((t << 1) & 0xFE) | 1
+
+
+def retime(pkt, shift):
+    """A TS packet with its PCR and PES timestamps moved back by shift ticks."""
+    afc = (pkt[3] >> 4) & 3
+    b, off = None, 4
+    if afc & 2:
+        n = pkt[4]
+        if n >= 7 and pkt[5] & 0x10:                # PCR
+            b = bytearray(pkt)
+            base = (b[6] << 25 | b[7] << 17 | b[8] << 9 | b[9] << 1 | b[10] >> 7) - shift
+            base %= WRAP
+            b[6:10] = (base >> 1).to_bytes(4, "big")
+            b[10] = (base & 1) << 7 | (b[10] & 0x7F)
+        off = 5 + n
+    if pkt[1] & 0x40 and afc & 1 and off + 14 <= TS and pkt[off:off + 3] == b"\x00\x00\x01" \
+            and pkt[off + 3] not in NO_PES_HEADER:
+        flags = pkt[off + 7] >> 6
+        if flags & 2:
+            b = b or bytearray(pkt)
+            _shift_time(b, off + 9, shift)          # PTS
+            if flags == 3 and off + 19 <= TS:
+                _shift_time(b, off + 14, shift)     # DTS
+    return bytes(b) if b else pkt
+
+
 class ReplaySkipper:
     """Cuts the replayed part out of a channel's MPEG-TS stream after a reconnect.
 
@@ -308,7 +362,14 @@ class ReplaySkipper:
 
     If the replay doesn't reach back to what was sent (the provider skipped ahead),
     playback can only carry on from a keyframe, as there's nothing to decode from;
-    audio then starts with that picture."""
+    audio then starts with that picture.
+
+    Every connection has its own clock. Rather than leave the jumps for FFmpeg to even
+    out (it keeps one correction for all streams, and when audio and video jump at
+    different places in the stream it can end up with the sound minutes away from the
+    picture), the timestamps sent are moved onto one continuous clock: the picture
+    playback carries on with gets the time right after the last picture sent, and all
+    audio and video of the new connection moves with it."""
 
     def __init__(self, log):
         self.log = log
@@ -330,6 +391,9 @@ class ReplaySkipper:
         self.held = []
         self.expect = None                  # number of the sent picture the replay is up to
         self.skipped = 0
+        self.shift = 0                      # input clock minus output clock (ticks)
+        self.out_dts = None                 # output time of the first picture in feed()'s result
+        self.cc = {}                        # PID -> continuity counter of the next packet sent
 
     def new_connection(self):
         """The picture being read when the old connection ended went out, whole or cut
@@ -344,6 +408,7 @@ class ReplaySkipper:
 
     def feed(self, data):
         buf, out, i = self.buf + data, [], 0
+        self.out_dts = None
         while len(buf) - i >= TS:
             if buf[i] != 0x47:          # lost sync: skip to the next packet start
                 j = buf.find(b"\x47", i + 1)
@@ -387,7 +452,10 @@ class ReplaySkipper:
         elif start and pid in self.pmt_pids:
             self._pmt(ts_payload(pkt))
         if pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
-            (self.held if self.checking else out).append(pkt)
+            if self.checking:
+                self.held.append(pkt)
+            else:
+                self._send(pkt, out)
         elif pid == self.video_pid:
             self._video(pkt, start, out)
         else:
@@ -414,7 +482,32 @@ class ReplaySkipper:
                 self._start_check()
             if self.video:
                 self.video[0].update(payload)
-        (self.held if self.checking else out).append(pkt)
+        if self.checking:
+            self.held.append(pkt)
+        else:
+            self._send(pkt, out)
+
+    def _send(self, pkt, out):
+        """Sends a packet, its timestamps moved onto the output's continuous clock and
+        its continuity counter following on from the last packet sent on its PID:
+        FFmpeg takes a gap in the counter (where the replay was cut out) for lost data
+        and throws the picture away, and the rest of its group of pictures with it."""
+        pid = ts_pid(pkt)
+        if pid == 0x1FFF:
+            out.append(pkt)
+            return
+        if self.shift and pid not in self.pmt_pids and pid != 0:
+            pkt = retime(pkt, self.shift)
+        if pkt[3] & 0x10:                           # has a payload: the counter goes up
+            n = self.cc.get(pid, pkt[3] & 15)
+            self.cc[pid] = (n + 1) & 15
+        else:                                       # adaptation field only: it stays
+            n = (self.cc.get(pid, (pkt[3] + 1) & 15) - 1) & 15
+        if pkt[3] & 15 != n:
+            pkt = pkt[:3] + bytes([(pkt[3] & 0xF0) | n]) + pkt[4:]
+        if self.out_dts is None and pkt[1] & 0x40 and pid == self.video_pid:
+            self.out_dts = pes_time(ts_payload(pkt))
+        out.append(pkt)
 
     def _audio(self, pid, pkt, start, out):
         """Audio (and subtitles etc.): held while checking; otherwise sent, except
@@ -443,7 +536,7 @@ class ReplaySkipper:
             elif not self.dropping.get(pid):     # rest of a frame begun before the hold
                 self.held.append(pkt)
         elif not self.dropping.get(pid):
-            out.append(pkt)
+            self._send(pkt, out)
 
     def _audio_sent(self, pid, t):
         if t is None:
@@ -504,6 +597,9 @@ class ReplaySkipper:
         that isn't replayed wherever it sits. Replayed audio is what comes up to the
         last audio sent, moved to the new clock (offset); without an offset, audio
         starts with the picture at `at` (DTS dts)."""
+        step = offset if offset is not None else self._offset(dts, 1)
+        if step is not None:                        # the new picture follows the last one sent
+            self.shift = (self.shift + step) % WRAP
         if offset is not None:
             # A replayed PES with more than half of it after the end of the last one sent
             # is kept: Dispatcharr's re-encoded audio has other PES boundaries.
@@ -534,7 +630,7 @@ class ReplaySkipper:
                 pid = ts_pid(pkt)
                 if pid == self.video_pid or pid == 0 or pid == 0x1FFF or pid in self.pmt_pids:
                     continue                        # replayed or undecodable pictures
-            out.append(pkt)
+            self._send(pkt, out)
         self.checking, self.held, self.held_audio = False, [], []
         for a in self.audio.values():
             a[2] = None
@@ -709,6 +805,102 @@ class Refused(OSError):
     pass
 
 
+START_BURST = 2             # seconds sent at once when playback starts (FFmpeg probes it)
+MAX_CUSHION = 60            # seconds of cushion kept at most; beyond it, sent at once
+QUEUE_LIMIT = 96 << 20      # bytes of cushion kept at most
+
+
+class Pacer:
+    """Passes a channel on to FFmpeg at playback speed, going by its picture times, and
+    keeps whatever arrives early as a cushion. The provider drops the connection every
+    10-20 s and Dispatcharr takes a few seconds to reconnect, but on reconnecting the
+    provider sends its last ~30 s at once (the replay, plus everything missed while it
+    was gone). Without a cushion the player runs dry during every reconnect and then
+    gets that burst; with one it plays on through the reconnect from the cushion, and
+    the burst fills it up again.
+
+    Playback starts once BUFFER seconds are queued, which is at once when the provider
+    sends such a burst on connecting, or after BUFFER seconds otherwise."""
+
+    def __init__(self, stdin, stop, log):
+        self.stdin, self.stop, self.log = stdin, stop, log
+        self.queue = collections.deque()    # (data, output time of its first picture or None)
+        self.size = 0
+        self.first = self.newest = None     # times of the first and newest picture queued
+        self.cond = threading.Condition()
+        self.ended = self.gone = False
+
+    def put(self, data, dts):
+        with self.cond:
+            self.queue.append((data, dts))
+            self.size += len(data)
+            if dts is not None:
+                self.newest = dts
+                if self.first is None:
+                    self.first = dts
+            self.cond.notify()
+
+    def end(self):
+        """No more data is coming: send what's queued, then close FFmpeg's input."""
+        with self.cond:
+            self.ended = True
+            self.cond.notify()
+
+    def _cushion(self, sent):
+        """Seconds of pictures queued after the one at time sent."""
+        if sent is None or self.newest is None:
+            return 0.0
+        return ticks_between(sent, self.newest) / 90000
+
+    def run(self):
+        anchor = None               # (wall clock, picture time) that playback is paced from
+        sent = None                 # time of the last picture sent
+        waiting_since = None        # the cushion ran out at this wall clock time
+        opened = time.monotonic()
+        try:
+            while True:
+                with self.cond:
+                    while not self.queue and not self.ended and not self.stop.is_set():
+                        if anchor and waiting_since is None:
+                            waiting_since = time.monotonic()
+                        self.cond.wait(1)
+                    if self.stop.is_set() or not self.queue:
+                        return
+                    if anchor is None and BUFFER > 0 and not self.ended \
+                            and self._cushion(self.first) < BUFFER and time.monotonic() - opened < BUFFER:
+                        self.cond.wait(0.2)         # building the cushion before playback starts
+                        continue
+                    data, dts = self.queue.popleft()
+                    self.size -= len(data)
+                    cushion = self._cushion(dts if dts is not None else sent)
+                    full = cushion > MAX_CUSHION or self.size > QUEUE_LIMIT
+                if waiting_since is not None:
+                    gap = time.monotonic() - waiting_since
+                    if gap >= 1:
+                        self.log(f"the cushion ran out; the player waited {gap:.0f} s for Dispatcharr")
+                    waiting_since = None
+                if dts is not None and BUFFER > 0:
+                    now = time.monotonic()
+                    if anchor is None:
+                        self.log(f"playing with a {cushion:.0f} s cushion")
+                        anchor = (now - START_BURST, dts)
+                    due = anchor[0] + ticks_between(anchor[1], dts) / 90000
+                    if due < now - START_BURST - 1 or due > now + 5 or full:
+                        anchor, due = (now, dts), now   # after running dry, a jump, or too much queued
+                    if due > now and self.stop.wait(due - now):
+                        return
+                    sent = dts
+                self.stdin.write(data)
+                self.stdin.flush()
+        except (BrokenPipeError, OSError, ValueError):
+            self.gone = True                        # FFmpeg is gone: player left
+        finally:
+            try:
+                self.stdin.close()
+            except OSError:
+                pass
+
+
 def feed_ffmpeg(channel_id, proc, stop, state):
     """Reads the channel from Dispatcharr, cuts out replays, and writes it to FFmpeg.
     When Dispatcharr ends the stream (it gave up after its own reconnects), asks for
@@ -720,6 +912,8 @@ def feed_ffmpeg(channel_id, proc, stop, state):
         print(f"stream {channel_id}: {msg}", flush=True)
 
     skipper = ReplaySkipper(log)
+    pacer = Pacer(proc.stdin, stop, log)
+    threading.Thread(target=pacer.run, daemon=True).start()
     host = urlsplit(DISPATCHARR)
     last_data, connections, refused_since = time.time(), 0, None
     try:
@@ -744,11 +938,9 @@ def feed_ffmpeg(channel_id, proc, stop, state):
                 while chunk := resp.read1(65536):
                     if data := skipper.feed(chunk):
                         last_data = time.time()             # new picture, not a replay
-                        try:
-                            proc.stdin.write(data)
-                            proc.stdin.flush()
-                        except (BrokenPipeError, OSError):
-                            return                      # FFmpeg is gone: player left
+                        pacer.put(data, skipper.out_dts)
+                    if pacer.gone:
+                        return                          # FFmpeg is gone: player left
             except Refused as e:
                 why = str(e)
                 refused_since = refused_since or time.time()
@@ -765,12 +957,9 @@ def feed_ffmpeg(channel_id, proc, stop, state):
                 log(f"no data for {RESTART_FOR} s, giving up")
                 return
             log(f"{why}; asking Dispatcharr for the channel again")
-            stop.wait(3)
+            stop.wait(1)
     finally:
-        try:
-            proc.stdin.close()
-        except OSError:
-            pass
+        pacer.end()
 
 
 def relay_stream(handler, channel_id):

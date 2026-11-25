@@ -158,6 +158,7 @@ services:
       SORT_BY: "${LIVETV_SORT_BY:-name}"
       SORT_ORDER: "${LIVETV_SORT_ORDER:-asc}"
       TIMESTAMP_FIX: "${LIVETV_TIMESTAMP_FIX:-1}"   # 0 = streams go straight to Dispatcharr (see scripts/livetv-proxy.py)
+      BUFFER: "${LIVETV_BUFFER:-8}"                 # seconds of cushion against the provider's drops; 0 = none
       # Closes channels Jellyfin keeps open after the player has stopped. It signs in to
       # Jellyfin to see what's being played; 0 = off.
       IDLE_AFTER: "${LIVETV_IDLE_AFTER:-20}"
