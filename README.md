@@ -71,8 +71,8 @@ Discord report, and a reboot only when needed. `after-boot.sh` reconnects contai
 that started before the VPN. `shrink-images.sh` shrinks Jellyfin's artwork, which
 otherwise grows past 100 GB.
 
-**Remote access** through Tailscale, without opening ports, and the **Wholphin** Fire TV
-app with Seerr requests built in.
+**Remote access** through Tailscale, without opening ports, and the **Moonfin** and
+**Wholphin** Fire TV apps with Seerr requests built in.
 
 ---
 
@@ -462,9 +462,13 @@ freed. To redo every image (after changing the limits): `scripts/shrink-images.s
 - **Phone or tablet:** the official **Jellyfin** app from Google Play or the App Store.
   Away from home, turn on Tailscale on the phone first (see
   [Remote access](#remote-access-tailscale)).
-- **Fire TV:** **Wholphin**, with Seerr requests built in. Install it from Wholphin's
-  GitHub releases, **not** from the Amazon Appstore: the Appstore version doesn't have the
-  Seerr integration (as of this writing).
+- **Fire TV:** **Moonfin**, with Seerr requests built in. Install it straight from the
+  Amazon Appstore, then add the server (`http://<server's LAN IP>:8096`) and sign in with
+  your Jellyfin account. That's all: Seerr comes through the Moonbase plugin, which is
+  already installed in Jellyfin and pointed at Seerr.
+- **Fire TV, alternative:** **Wholphin**, also with Seerr requests built in. Install it
+  from Wholphin's GitHub releases, **not** from the Amazon Appstore: the Appstore version
+  doesn't have the Seerr integration (as of this writing).
   1. On the Fire TV, turn on **Settings → My Fire TV → Developer options → Install
      unknown apps** (for Downloader).
   2. Install **Downloader** from the Appstore, open it and enter the code `8668671`.
@@ -534,6 +538,7 @@ All the real work is theirs; please star and support their projects.
 | [Jellyfin Enhanced](https://github.com/n00bcodr/Jellyfin-Enhanced) by n00bcodr | Seerr requests and extras inside Jellyfin |
 | [JavaScript Injector](https://github.com/n00bcodr/Jellyfin-JavaScript-Injector) by n00bcodr | Small tweaks to Jellyfin's web pages |
 | [Intro Skipper](https://github.com/intro-skipper/intro-skipper) | Skip intros and credits |
+| [Moonfin](https://github.com/Moonfin-Client) | Fire TV app and its Jellyfin plugin, Moonbase |
 | [Wholphin](https://github.com/damontecres/Wholphin) by damontecres | Fire TV / Android TV app and its Jellyfin plugin |
 | [Seerr](https://github.com/seerr-team/seerr) | Requests and discovery |
 | [Sonarr](https://github.com/Sonarr/Sonarr), [Radarr](https://github.com/Radarr/Radarr), [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Series, movies, indexers |

@@ -23,5 +23,10 @@
     "Name": "Wholphin",
     "Url": "https://damontecres.github.io/Wholphin/plugin/manifest.json",
     "Enabled": true
+  },
+  {
+    "Name": "Moonfin",
+    "Url": "https://raw.githubusercontent.com/Moonfin-Client/Plugin/refs/heads/master/manifest.json",
+    "Enabled": true
   }
 ]
