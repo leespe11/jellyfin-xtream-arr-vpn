@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LiveTvOptions xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
+  <GuideDays xsi:nil="true" />
+  <EnableRecordingSubfolders>false</EnableRecordingSubfolders>
+  <EnableOriginalAudioWithEncodedRecordings>false</EnableOriginalAudioWithEncodedRecordings>
+  <TunerHosts>
+    <TunerHostInfo>
+      <Id>e245d4b560f047d6b887721cbf27606c</Id>
+      <Url>http://localhost:8097/LiveTv.m3u</Url>
+      <Type>m3u</Type>
+      <ImportFavoritesOnly>false</ImportFavoritesOnly>
+      <AllowHWTranscoding>false</AllowHWTranscoding>
+      <AllowFmp4TranscodingContainer>false</AllowFmp4TranscodingContainer>
+      <AllowStreamSharing>true</AllowStreamSharing>
+      <FallbackMaxStreamingBitrate>30000000</FallbackMaxStreamingBitrate>
+      <EnableStreamLooping>false</EnableStreamLooping>
+      <TunerCount>0</TunerCount>
+      <UserAgent>VLC/3.0.20 LibVLC/3.0.20</UserAgent>
+      <IgnoreDts>true</IgnoreDts>
+      <ReadAtNativeFramerate>true</ReadAtNativeFramerate>
+    </TunerHostInfo>
+  </TunerHosts>
+  <ListingProviders>
+    <ListingsProviderInfo>
+      <Id>d817badec0c24441bf85270949989749</Id>
+      <Type>xmltv</Type>
+      <Path>http://localhost:8097/Epg.xml</Path>
+      <EnabledTuners />
+      <EnableAllTuners>true</EnableAllTuners>
+      <NewsCategories>
+        <string>news</string>
+        <string>journalism</string>
+        <string>documentary</string>
+        <string>current affairs</string>
+      </NewsCategories>
+      <SportsCategories>
+        <string>sports</string>
+        <string>basketball</string>
+        <string>baseball</string>
+        <string>football</string>
+      </SportsCategories>
+      <KidsCategories>
+        <string>kids</string>
+        <string>family</string>
+        <string>children</string>
+        <string>childrens</string>
+        <string>disney</string>
+      </KidsCategories>
+      <MovieCategories>
+        <string>movie</string>
+      </MovieCategories>
+      <ChannelMappings />
+    </ListingsProviderInfo>
+  </ListingProviders>
+  <PrePaddingSeconds>0</PrePaddingSeconds>
+  <PostPaddingSeconds>0</PostPaddingSeconds>
+  <MediaLocationsCreated />
+  <RecordingPostProcessorArguments>"{path}"</RecordingPostProcessorArguments>
+  <SaveRecordingNFO>true</SaveRecordingNFO>
+  <SaveRecordingImages>true</SaveRecordingImages>
+</LiveTvOptions>

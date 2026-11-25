@@ -1,0 +1,9 @@
+{
+  "main": {
+    "apiKey": "{{SEERR_API_KEY}}",
+    "mediaServerType": 4,
+    "discoverRegion": "",
+    "streamingRegion": "CA",
+    "partialRequestsEnabled": true
+  }
+}

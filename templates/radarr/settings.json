@@ -1,0 +1,467 @@
+{
+  "rootFolders": [
+    "{{MOVIES_PATH}}"
+  ],
+  "customFormats": [
+    {
+      "name": "x265",
+      "includeCustomFormatWhenRenaming": false,
+      "specifications": [
+        {
+          "name": "x265",
+          "implementation": "ReleaseTitleSpecification",
+          "implementationName": "Release Title",
+          "infoLink": "https://wiki.servarr.com/radarr/settings#custom-formats-2",
+          "negate": false,
+          "required": false,
+          "fields": [
+            {
+              "order": 0,
+              "name": "value",
+              "label": "Regular Expression",
+              "helpText": "Custom Format RegEx is Case Insensitive",
+              "value": "(?<![a-z0-9])(hevc|[xh][ ._-]?265)(?![0-9])",
+              "type": "textbox",
+              "advanced": false,
+              "privacy": "normal",
+              "isFloat": false
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "qualityProfile": {
+    "upgradeAllowed": false,
+    "minFormatScore": 0,
+    "cutoffFormatScore": 50,
+    "minUpgradeFormatScore": 1,
+    "language": {
+      "id": -2,
+      "name": "Original"
+    }
+  },
+  "downloadClient": {
+    "enable": true,
+    "protocol": "torrent",
+    "priority": 1,
+    "removeCompletedDownloads": true,
+    "removeFailedDownloads": true,
+    "name": "qBittorrent",
+    "fields": [
+      {
+        "order": 0,
+        "name": "host",
+        "label": "Host",
+        "value": "gluetun",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 1,
+        "name": "port",
+        "label": "Port",
+        "value": 8080,
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 2,
+        "name": "useSsl",
+        "label": "Use SSL",
+        "helpText": "Use a secure connection. See Options -> Web UI -> 'Use HTTPS instead of HTTP' in qBittorrent.",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 3,
+        "name": "urlBase",
+        "label": "URL Base",
+        "helpText": "Adds a prefix to the qBittorrent url, such as http://[host]:[port]/[urlBase]/api",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 4,
+        "name": "apiKey",
+        "label": "API Key",
+        "value": "",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "apiKey",
+        "isFloat": false
+      },
+      {
+        "order": 5,
+        "name": "username",
+        "label": "Username",
+        "value": "{{QBIT_USERNAME}}",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "userName",
+        "isFloat": false
+      },
+      {
+        "order": 6,
+        "name": "password",
+        "label": "Password",
+        "value": "{{QBIT_PASSWORD}}",
+        "type": "password",
+        "advanced": false,
+        "privacy": "password",
+        "isFloat": false
+      },
+      {
+        "order": 7,
+        "name": "movieCategory",
+        "label": "Category",
+        "helpText": "Adding a category specific to Radarr avoids conflicts with unrelated non-Radarr downloads. Using a category is optional, but strongly recommended.",
+        "value": "radarr",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 8,
+        "name": "movieImportedCategory",
+        "label": "Post-Import Category",
+        "helpText": "Category for Radarr to set after it has imported the download. Radarr will not remove torrents in that category even if seeding finished. Leave blank to keep same category.",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 9,
+        "name": "recentMoviePriority",
+        "label": "Recent Priority",
+        "helpText": "Priority to use when grabbing movies that aired within the last 21 days",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Last",
+            "order": 0,
+            "dividerAfter": false
+          },
+          {
+            "value": 1,
+            "name": "First",
+            "order": 1,
+            "dividerAfter": false
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 10,
+        "name": "olderMoviePriority",
+        "label": "Older Priority",
+        "helpText": "Priority to use when grabbing movies that aired over 21 days ago",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Last",
+            "order": 0,
+            "dividerAfter": false
+          },
+          {
+            "value": 1,
+            "name": "First",
+            "order": 1,
+            "dividerAfter": false
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 11,
+        "name": "initialState",
+        "label": "Initial State",
+        "helpText": "Initial state for torrents added to qBittorrent. Note that Forced Torrents do not abide by seed restrictions",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Started",
+            "order": 7,
+            "hint": "(0)",
+            "dividerAfter": false
+          },
+          {
+            "value": 1,
+            "name": "Force Started",
+            "order": 10,
+            "hint": "(1)",
+            "dividerAfter": false
+          },
+          {
+            "value": 2,
+            "name": "Stopped",
+            "order": 13,
+            "hint": "(2)",
+            "dividerAfter": false
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 12,
+        "name": "sequentialOrder",
+        "label": "Sequential Order",
+        "helpText": "Download in sequential order (qBittorrent 4.1.0+)",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 13,
+        "name": "firstAndLast",
+        "label": "First and Last First",
+        "helpText": "Download first and last pieces first (qBittorrent 4.1.0+)",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 14,
+        "name": "contentLayout",
+        "label": "Content Layout",
+        "helpText": "Whether to use qBittorrent's configured content layout, the original layout from the torrent or always create a subfolder (qBittorrent 4.3.2+)",
+        "value": 0,
+        "type": "select",
+        "advanced": false,
+        "selectOptions": [
+          {
+            "value": 0,
+            "name": "Default",
+            "order": 0,
+            "dividerAfter": false
+          },
+          {
+            "value": 1,
+            "name": "Original",
+            "order": 1,
+            "dividerAfter": false
+          },
+          {
+            "value": 2,
+            "name": "Subfolder",
+            "order": 2,
+            "dividerAfter": false
+          }
+        ],
+        "privacy": "normal",
+        "isFloat": false
+      }
+    ],
+    "implementationName": "qBittorrent",
+    "implementation": "QBittorrent",
+    "configContract": "QBittorrentSettings",
+    "infoLink": "https://wiki.servarr.com/radarr/supported#qbittorrent",
+    "tags": []
+  },
+  "notification": {
+    "onGrab": true,
+    "onDownload": true,
+    "onUpgrade": true,
+    "onRename": true,
+    "onMovieAdded": false,
+    "onMovieDelete": true,
+    "onMovieFileDelete": true,
+    "onMovieFileDeleteForUpgrade": true,
+    "onHealthIssue": false,
+    "includeHealthWarnings": false,
+    "onHealthRestored": false,
+    "onApplicationUpdate": true,
+    "onManualInteractionRequired": false,
+    "supportsOnGrab": true,
+    "supportsOnDownload": true,
+    "supportsOnUpgrade": true,
+    "supportsOnRename": true,
+    "supportsOnMovieAdded": false,
+    "supportsOnMovieDelete": true,
+    "supportsOnMovieFileDelete": true,
+    "supportsOnMovieFileDeleteForUpgrade": true,
+    "supportsOnHealthIssue": true,
+    "supportsOnHealthRestored": true,
+    "supportsOnApplicationUpdate": true,
+    "supportsOnManualInteractionRequired": false,
+    "name": "Emby / Jellyfin",
+    "fields": [
+      {
+        "order": 0,
+        "name": "host",
+        "label": "Host",
+        "value": "gluetun",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 1,
+        "name": "port",
+        "label": "Port",
+        "value": 8096,
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 2,
+        "name": "useSsl",
+        "label": "Use SSL",
+        "helpText": "Connect to Emby/Jellyfin over HTTPS instead of HTTP",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 3,
+        "name": "urlBase",
+        "label": "URL Base",
+        "helpText": "Adds a prefix to the Emby/Jellyfin url, such as http://[host]:[port]/[urlBase]/mediabrowser",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 4,
+        "name": "apiKey",
+        "label": "API Key",
+        "value": "{{JELLYFIN_KEY_RADARR}}",
+        "type": "textbox",
+        "advanced": false,
+        "privacy": "apiKey",
+        "isFloat": false
+      },
+      {
+        "order": 5,
+        "name": "notify",
+        "label": "Send Notifications",
+        "helpText": "Have Emby send notifications to configured providers. Not supported on Jellyfin.",
+        "value": false,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 6,
+        "name": "updateLibrary",
+        "label": "Update Library",
+        "helpText": "Update Library on Import, Rename, or Delete",
+        "value": true,
+        "type": "checkbox",
+        "advanced": false,
+        "privacy": "normal",
+        "isFloat": false
+      },
+      {
+        "order": 7,
+        "name": "mapFrom",
+        "label": "Map Paths From",
+        "helpText": "Radarr path, used to modify movie paths when Emby/Jellyfin sees library path location differently from Radarr (Requires 'Update Library')",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false,
+        "value": "{{MOVIES_PATH}}/"
+      },
+      {
+        "order": 8,
+        "name": "mapTo",
+        "label": "Map Paths To",
+        "helpText": "Emby/Jellyfin path, used to modify movie paths when Emby/Jellyfin sees library path location differently from Radarr (Requires 'Update Library')",
+        "type": "textbox",
+        "advanced": true,
+        "privacy": "normal",
+        "isFloat": false,
+        "value": "/media/movies/"
+      }
+    ],
+    "implementationName": "Emby / Jellyfin",
+    "implementation": "MediaBrowser",
+    "configContract": "MediaBrowserSettings",
+    "infoLink": "https://wiki.servarr.com/radarr/supported#mediabrowser",
+    "tags": []
+  },
+  "config": {
+    "naming": {
+      "renameMovies": true,
+      "replaceIllegalCharacters": true,
+      "colonReplacementFormat": "smart",
+      "standardMovieFormat": "{Movie Title} ({Release Year})",
+      "movieFolderFormat": "{Movie Title} ({Release Year})"
+    },
+    "mediamanagement": {
+      "autoUnmonitorPreviouslyDownloadedMovies": false,
+      "recycleBin": "",
+      "recycleBinCleanupDays": 7,
+      "downloadPropersAndRepacks": "preferAndUpgrade",
+      "createEmptyMovieFolders": false,
+      "deleteEmptyFolders": false,
+      "fileDate": "none",
+      "rescanAfterRefresh": "always",
+      "autoRenameFolders": false,
+      "pathsDefaultStatic": false,
+      "setPermissionsLinux": false,
+      "chmodFolder": "755",
+      "chownGroup": "",
+      "skipFreeSpaceCheckWhenImporting": false,
+      "minimumFreeSpaceWhenImporting": 100,
+      "copyUsingHardlinks": true,
+      "useScriptImport": false,
+      "scriptImportPath": "",
+      "importExtraFiles": false,
+      "extraFileExtensions": "srt",
+      "enableMediaInfo": true
+    },
+    "downloadclient": {
+      "downloadClientWorkingFolders": "_UNPACK_|_FAILED_",
+      "enableCompletedDownloadHandling": true,
+      "checkForFinishedDownloadInterval": 1,
+      "autoRedownloadFailed": true,
+      "autoRedownloadFailedFromInteractiveSearch": true
+    },
+    "indexer": {
+      "minimumAge": 0,
+      "maximumSize": 0,
+      "retention": 0,
+      "rssSyncInterval": 30,
+      "preferIndexerFlags": false,
+      "availabilityDelay": 0,
+      "allowHardcodedSubs": false,
+      "whitelistedHardcodedSubs": ""
+    }
+  }
+}

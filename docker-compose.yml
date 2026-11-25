@@ -1,0 +1,214 @@
+services:
+  gluetun:
+    image: qmcgaw/gluetun@sha256:4af0c804003481e100180e1f8d4d5e9c48163fedc0f88d061881b615aef9d183
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    ports:
+      - 8096:8096          # Jellyfin web UI, published to your LAN
+      - 8080:8080
+      - 9191:9191
+    environment:
+      - VPN_SERVICE_PROVIDER=${VPN_SERVICE_PROVIDER:-windscribe}
+      - VPN_TYPE=wireguard
+      - WIREGUARD_PRIVATE_KEY=${WIREGUARD_PRIVATE_KEY}
+      - WIREGUARD_ADDRESSES=${WIREGUARD_ADDRESSES}
+      - WIREGUARD_PRESHARED_KEY=${WIREGUARD_PRESHARED_KEY:-}
+      - SERVER_HOSTNAMES=${VPN_SERVER_HOSTNAMES:-}
+      - SERVER_REGIONS=${VPN_SERVER_REGIONS:-}
+      - SERVER_COUNTRIES=${VPN_SERVER_COUNTRIES:-}
+      - FIREWALL_OUTBOUND_SUBNETS=${LAN_SUBNETS}   # change to your LAN range
+      - FIREWALL_VPN_INPUT_PORTS=${TORRENT_PORT}
+      - HTTP_CONTROL_SERVER_AUTH_DEFAULT_ROLE={"auth":"none"}
+      - TZ=${TZ}
+    restart: unless-stopped
+
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls486
+    container_name: qbittorrent
+    network_mode: service:gluetun     # all traffic goes through the VPN
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=${TORRENT_PORT}
+      - QBIT_USERNAME=${QBIT_USERNAME}   # for scripts/qbit-https-trackers.sh
+      - QBIT_PASSWORD=${QBIT_PASSWORD}
+    volumes:
+      - ./config/qbittorrent:/config
+      - ${DATA_ROOT:-/mnt/storage}:/data
+      - ./scripts/qbit-https-trackers.sh:/scripts/qbit-https-trackers.sh:ro
+    restart: unless-stopped
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:2.7.0.5723-ls166
+    container_name: prowlarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/prowlarr:/config
+    ports:
+      - 9696:9696
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:6.4.4.10685-ls325
+    container_name: radarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/radarr:/config
+      - ${DATA_ROOT:-/mnt/storage}:/data
+    ports:
+      - 7878:7878
+    restart: unless-stopped
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:4.0.20.3014-ls2
+    container_name: sonarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/sonarr:/config
+      - ${DATA_ROOT:-/mnt/storage}:/data
+    ports:
+      - 8989:8989
+    restart: unless-stopped
+
+  bazarr:
+    image: lscr.io/linuxserver/bazarr:v1.6.2-ls371
+    container_name: bazarr
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+    volumes:
+      - ./config/bazarr:/config
+      - ${DATA_ROOT:-/mnt/storage}:/data
+    ports:
+      - 6767:6767
+    restart: unless-stopped
+
+  seerr:
+    image: ghcr.io/seerr-team/seerr:v3.5.2
+    container_name: seerr
+    init: true
+    environment:
+      - TZ=${TZ}
+    volumes:
+      - ./config/seerr:/app/config
+      - ./scripts/seerr-patch.sh:/seerr-patch.sh:ro
+    # Counts Xtream (.strm) movies and episodes as available, then starts Seerr as
+    # usual (see scripts/seerr-patch.sh; remove both lines to undo).
+    entrypoint: ["/bin/sh", "/seerr-patch.sh"]
+    ports:
+      - 5055:5055
+    restart: unless-stopped
+
+  jellyfin:
+    image: jellyfin/jellyfin:12.4
+    container_name: jellyfin
+    network_mode: "service:gluetun"   # all Jellyfin traffic goes through the VPN
+    environment:
+      - TZ=${TZ}
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./config/jellyfin:/config
+      - ./config/jellyfin-cache:/cache
+      # Artwork and the provider's STRM files grow large, so they can live on another
+      # drive: JELLYFIN_BULK_DIR in .env (empty = inside ./config/jellyfin).
+      - ${JELLYFIN_BULK_DIR:-./config/jellyfin}/metadata:/config/metadata
+      - ${JELLYFIN_BULK_DIR:-./config/jellyfin}/xtream-library:/config/xtream-library
+      - ${MOVIES_DIR:-/mnt/storage/Movies}:/media/movies
+      - ${SERIES_DIR:-/mnt/storage/Series}:/media/tvshows
+    devices:
+       - /dev/dri:/dev/dri   # uncomment for Intel/AMD hardware transcoding
+    restart: unless-stopped
+
+# Tidies Dispatcharr's Live TV channels for Jellyfin: removes the STRIP_PREFIXES /
+# STRIP_SUFFIXES tags from channel names and guide titles, sorts the channels A-Z and
+# numbers them 1..N. Jellyfin's tuner uses http://localhost:8097/LiveTv.m3u and its
+# guide http://localhost:8097/Epg.xml. Shares gluetun's network like Jellyfin and
+# Dispatcharr, so they reach each other on localhost; nothing is published to the LAN.
+  livetv-proxy:
+    image: python:3.13-alpine
+    container_name: livetv-proxy
+    network_mode: "service:gluetun"
+    environment:
+      SOURCE_M3U: "http://localhost:9191/output/m3u"
+      SOURCE_EPG: "http://localhost:9191/output/epg?days=3"
+      STRIP_PREFIXES: "${LIVETV_STRIP_PREFIXES-CA EN:,24/7:,24/7,AT&T,US: 24/7,US:,NBA:,MLB,CA:,TV:,RK:,TUBI:}"
+      STRIP_SUFFIXES: "${LIVETV_STRIP_SUFFIXES-4K,FHD,HD,ᴿᴬᵂ}"
+      SORT_BY: "${LIVETV_SORT_BY:-name}"
+      SORT_ORDER: "${LIVETV_SORT_ORDER:-asc}"
+      TIMESTAMP_FIX: "${LIVETV_TIMESTAMP_FIX:-1}"   # 0 = streams go straight to Dispatcharr (see scripts/livetv-proxy.py)
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./scripts/livetv-proxy.py:/app/livetv-proxy.py:ro
+    command: ["sh", "-c", "apk add --no-cache ffmpeg >/dev/null 2>&1 || echo 'ffmpeg install failed'; exec python -u /app/livetv-proxy.py"]
+    restart: unless-stopped
+
+# Live TV: logs in to the IPTV provider, keeps streams alive across the provider's
+# ~4.5-minute disconnects (which Wholphin can't recover from), and serves the channel
+# list and guide that livetv-proxy tidies. Web UI on port 9191 (published by gluetun).
+  dispatcharr:
+    image: ghcr.io/dispatcharr/dispatcharr:0.33.0
+    container_name: dispatcharr
+    restart: unless-stopped
+    network_mode: "service:gluetun"
+    depends_on:
+      gluetun:
+        condition: service_healthy
+        restart: true
+    volumes:
+      - ./config/dispatcharr:/data
+      - ./scripts/dispatcharr-patch.sh:/dispatcharr-patch.sh:ro
+    # Waits longer between reconnects after a provider drop, then starts Dispatcharr
+    # as usual (see scripts/dispatcharr-patch.sh; remove both lines to undo).
+    entrypoint: ["/bin/bash", "/dispatcharr-patch.sh"]
+    environment:
+      - TZ=${TZ}
+      - DISPATCHARR_ENV=aio
+      - REDIS_HOST=localhost
+      - CELERY_BROKER_URL=redis://localhost:6379/0
+      - DISPATCHARR_LOG_LEVEL=info
+
+# Remote access from your phone/PC. Runs on the host network, so the host's SSH and
+# every published port (Jellyfin 8096, Seerr 5055, ...) are reachable at
+# http://<machine-name>:<port> from any device signed in to your Tailscale account.
+# First start: open the login link from `docker logs tailscale`. The login is saved
+# in config/tailscale after that.
+  tailscale:
+    image: tailscale/tailscale:v1.104.4
+    container_name: tailscale
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      - TS_STATE_DIR=/var/lib/tailscale
+      - TS_USERSPACE=false
+      - TS_ACCEPT_DNS=false
+    volumes:
+      - ./config/tailscale:/var/lib/tailscale
+    restart: unless-stopped

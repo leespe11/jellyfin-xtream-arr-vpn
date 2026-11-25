@@ -1,0 +1,27 @@
+[
+  {
+    "Name": "Jellyfin Stable",
+    "Url": "https://repo.jellyfin.org/files/plugin/manifest.json",
+    "Enabled": true
+  },
+  {
+    "Name": "Xtream Plugins",
+    "Url": "https://firestaerter3.github.io/jellyfin-plugin-repo/manifest.json",
+    "Enabled": true
+  },
+  {
+    "Name": "Jellyfin Enhanced",
+    "Url": "https://raw.githubusercontent.com/n00bcodr/jellyfin-plugins/main/manifest.json",
+    "Enabled": true
+  },
+  {
+    "Name": "intro-skipper",
+    "Url": "https://intro-skipper.org/manifest.json",
+    "Enabled": true
+  },
+  {
+    "Name": "Wholphin",
+    "Url": "https://damontecres.github.io/Wholphin/plugin/manifest.json",
+    "Enabled": true
+  }
+]
