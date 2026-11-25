@@ -386,7 +386,11 @@ class ReplaySkipper:
     """Cuts the replayed part out of a channel's MPEG-TS stream after a reconnect.
 
     In normal play every packet passes, and a hash of every picture (video PES,
-    without its header, since a replay has new timestamps) is remembered. After a
+    without its header, since a replay has new timestamps) is remembered. A picture or
+    audio PES goes out only once it's whole (the next one has begun): when a connection
+    drops, the one being read is cut short, and a player shown a cut picture keeps
+    drawing still parts of the image from its broken copy until the scene changes. So
+    it's dropped instead, and its whole copy from the replay is sent. After a
     reconnect (Dispatcharr's discontinuity marker, a jump in a stream's timestamps, or
     a new connection to Dispatcharr) packets are held back. Pictures that were already
     sent are the replay and are dropped, each one lining the replay up with what was
@@ -436,17 +440,13 @@ class ReplaySkipper:
         self.cc = {}                        # PID -> continuity counter of the next packet sent
         self.clock_from = 0                 # held packets before this are from a dead attempt
         self.video_out = None               # output time of the last picture sent
+        self.pending = []                   # packets of the picture being read, sent when it's whole
 
     def new_connection(self):
-        """The picture being read when the old connection ended went out, whole or cut
-        short: count it as sent. A whole one then matches its copy in the replay; a cut
-        one doesn't, and the replay's whole copy follows it."""
+        """The old connection ended: what was being read of it may be cut short. Nothing
+        of it has gone out yet (pictures and audio go out once whole), so it's dropped
+        and the replay's whole copy is sent instead."""
         self.buf = b""
-        if self.video and not self.checking:
-            self._remember_picture(self.video[0].digest(), self.video[3])
-        self.video = None
-        for pid in self.au:                         # the rest of any PES isn't coming
-            self._audio_done(pid, None)
         self._start_check()
 
     def feed(self, data):
@@ -472,8 +472,14 @@ class ReplaySkipper:
             return
         self.checking, self.held, self.clock_from = True, [], 0
         self.expect, self.skipped = None, 0
-        if self.video:
-            self.video[1] = None            # begun before the hold: part of it went out already
+        # What was being read may be cut short where the old connection ended. A player
+        # decodes a cut picture into a broken one and goes on drawing still parts of the
+        # image from it until the scene changes, and FFmpeg throws a cut audio PES away
+        # (a hole in the sound). None of it went out yet, so it's dropped: the replay
+        # has it whole.
+        self.video, self.pending = None, []
+        for pid in self.au:
+            self._audio_done(pid, None)
 
     def _jumped(self, pid, t, disc):
         """A reconnect shows on any stream first (often audio, a moment before the
@@ -513,12 +519,18 @@ class ReplaySkipper:
     def _video(self, pkt, start, out):
         payload = ts_payload(pkt)
         if start:
+            rai, disc = ts_flags(pkt)
+            t = pes_time(payload)
+            jumped = self._jumped(self.video_pid, t, disc)
+            if jumped and not self.checking:
+                self._start_check()                 # the picture being read may be cut short
             if v := self.video:
                 self.video = None
                 self._picture(v[0].digest(), v[2], v[1], v[3], out)
-            rai, disc = ts_flags(pkt)
-            t = pes_time(payload)
-            if self._jumped(self.video_pid, t, disc):
+            for p in self.pending:                  # it's whole: out it goes
+                self._send(p, out)
+            self.pending = []
+            if jumped:
                 self._start_check()
             body = pes_body(payload)
             self.video = [hashlib.sha1(body), len(self.held) if self.checking else None,
@@ -530,6 +542,8 @@ class ReplaySkipper:
                 self.video[0].update(payload)
         if self.checking:
             self.held.append(pkt)
+        elif self.video:
+            self.pending.append(pkt)
         else:
             self._send(pkt, out)
 
@@ -598,21 +612,14 @@ class ReplaySkipper:
                 if abs(off) > 450000:               # over 5 s from the picture: a bug, not muxing
                     self.log(f"audio was {off / 90000:+.0f} s off the picture; put back in step")
                     a["shift"] = self.shift
-            a["cur"] = {"t": t, "head": payload[:hl], "data": bytearray(payload[hl:]), "pkts": [],
+            a["cur"] = {"t": t, "head": payload[:hl], "data": bytearray(payload[hl:]), "pkts": [pkt],
                         "sent": sent, "out_t": None if t is None or not sent else (t - a["shift"]) % WRAP}
-            if sent:
-                self._send(pkt, out, a["shift"])
-            else:
-                a["cur"]["pkts"].append(pkt)
             return
         c = a["cur"]
         if c is None:
             return                                  # the rest of a PES from a connection that ended
         c["data"] += payload
-        if c["sent"]:
-            self._send(pkt, out, a["shift"])
-        else:
-            c["pkts"].append(pkt)
+        c["pkts"].append(pkt)
 
     def _end_of(self, a, c):
         """Output time where the sent PES c ends (its whole AAC frames)."""
@@ -623,13 +630,18 @@ class ReplaySkipper:
         return (c["out_t"] + ticks) % WRAP
 
     def _audio_done(self, pid, out):
-        """The PES being read is complete (out=None: it never will be)."""
+        """The PES being read is complete and goes out (out=None: it never will be, and
+        it's dropped)."""
         a = self.au[pid]
         c, a["cur"] = a["cur"], None
-        if c is None:
+        if c is None or out is None:
             return
-        if not c["sent"] and (out is None or not self._decide(a, pid, c, out)):
-            return                                  # replayed audio: dropped
+        if not c["sent"]:
+            if not self._decide(a, pid, c, out):
+                return                              # replayed audio: dropped
+        else:
+            for pkt in c["pkts"]:
+                self._send(pkt, out, a["shift"])
         if (e := self._end_of(a, c)) is not None:
             a["end"] = e
 
@@ -715,9 +727,6 @@ class ReplaySkipper:
         pids = (set(self.au) | {ts_pid(p) for p in self.held}) - psi - {self.video_pid}
         for pid in pids:
             a = self._au(pid)
-            c = a["cur"]
-            if c and c["sent"] and (e := self._end_of(a, c)) is not None:
-                a["end"] = e
             floor = None
             if offset is not None or dts is not None:
                 if a["end"] is not None:
